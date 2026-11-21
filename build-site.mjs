@@ -13,6 +13,7 @@ await Promise.all([
   writeFile('site-dist/index.html', html.replace(`${visibleSection} hidden`, visibleSection)),
   copyFile('site/styles.css', 'site-dist/styles.css'),
   copyFile('site/invite.js', 'site-dist/invite.js'),
+  copyFile('site/og-image.jpg', 'site-dist/og-image.jpg'),
 ]);
 
 if (configured) {
