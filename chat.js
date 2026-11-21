@@ -31,23 +31,11 @@ const gmailKey = context.get('thread');
 const messageKey = context.get('message-key');
 const mailbox = context.get('mailbox');
 const workspaceStatus = document.querySelector('#workspace-status');
-const page = document.querySelector('.chat');
 const connectedSelect = document.querySelector('#connected-workspace');
 const chatDescription = document.querySelector('#chat-description');
-const CHAT_HEIGHT = 560;
-let reportedHeight = 0;
 let historyVisible = false;
 const refreshMentionConfirmation = mountMentions(messageInput, () => activeChat);
 const assistant = mountAssistant({supabase, getChat: () => activeChat, gmailKey});
-
-function reportHeight() {
-  const compact = conversation.hidden;
-  document.body.classList.toggle('compact', compact);
-  const height = compact ? Math.ceil(page.getBoundingClientRect().height) : CHAT_HEIGHT;
-  if (height === reportedHeight) return;
-  reportedHeight = height;
-  parent.postMessage({ type: 'threadly-height', height }, 'https://mail.google.com');
-}
 
 function stopChat() {
   assistant.reset();
@@ -64,7 +52,6 @@ function stopChat() {
   connectedSelect.hidden = true;
   chatDescription.textContent = 'Discuss this email privately with your team.';
   refreshMentionConfirmation();
-  reportHeight();
 }
 function messageElement(message, chat, continuation) {
   const item = document.createElement('li');
@@ -391,7 +378,6 @@ function openDiscussion(workspaceId, discussionId) {
   if (mailbox) localStorage.setItem(`mailbox:${user.id}:${gmailKey}`, mailbox);
   conversation.hidden = false;
   workspaceStatus.textContent = '';
-  reportHeight();
   renderConnection(chat);
   void refreshHistory(chat);
   void loadMembers(chat);
@@ -449,7 +435,6 @@ async function refreshWorkspaces() {
       ? `Could not identify this email. ${context.get('match-error') || 'Gmail did not provide its shared email identity'}.`
       : 'Matching this email with your workspace…';
     retryMatchButton.hidden = !failed;
-    reportHeight();
     return;
   }
   try {
@@ -491,7 +476,6 @@ async function sendMessage(chat, draft) {
 }
 
 watchAccount(showAccount);
-new ResizeObserver(reportHeight).observe(page);
 connectedSelect.addEventListener('change', () => {
   selectedWorkspace = connectedSelect.value;
   void refreshWorkspaces();

@@ -33,6 +33,10 @@ function contentHarness() {
   const requests = [];
   const listeners = {};
   const location = { hash: `#inbox/${threadA}`, pathname: '/mail/u/2/' };
+  const classList = () => {
+    const values = new Set();
+    return { add: (value) => values.add(value), remove: (value) => values.delete(value), contains: (value) => values.has(value) };
+  };
   const message = {
     checkVisibility: () => visible,
     getAttribute: () => messageId,
@@ -40,6 +44,8 @@ function contentHarness() {
     closest: () => null,
   };
   const anchor = {
+    classList: classList(),
+    parentElement: { classList: classList() },
     nextElementSibling: null,
     querySelector(selector) { return selector.includes('data-legacy-thread-id') ? null : message; },
     querySelectorAll() { return [message]; },
@@ -61,7 +67,7 @@ function contentHarness() {
     window: { addEventListener(type, handler) { listeners[type] = handler; } },
     chrome: { runtime: { getURL: (path) => `chrome-extension://test/${path}` } },
     document: {
-      body: {}, querySelector() {return null;}, querySelectorAll(selector) { return selector === '#gmail-team-chat' ? [] : [anchor]; },
+      body: {}, querySelector() {return null;}, querySelectorAll(selector) { return selector.startsWith('[role="main"]') ? [anchor] : []; },
       createElement() {
         const frame = { src: '', replies:[], remove() { anchor.nextElementSibling = null; } };
         frame.contentWindow = {postMessage(data,origin){frame.replies.push({data,origin});}};

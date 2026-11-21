@@ -6,6 +6,8 @@ import { visibleEmailContext } from './email-context.js';
 const threadSelector = '[role="main"] :is(.a98.iY, .if, .PeIF1d, table.Bs > tbody > tr)';
 const messageSelector = '.adn, [data-message-id], [data-legacy-message-id]';
 let frame;
+let layoutAnchor;
+let layoutHost;
 let scheduled = false;
 let matching;
 let lastMessageContext;
@@ -40,6 +42,13 @@ function contextKey(context) {
   return JSON.stringify([context.gmailKey, context.mailbox, context.messageId, context.sessionKey]);
 }
 
+function clearLayout() {
+  layoutAnchor?.classList.remove('threadly-email');
+  layoutHost?.classList.remove('threadly-split');
+  layoutAnchor = undefined;
+  layoutHost = undefined;
+}
+
 function updateFrame(anchor, context) {
   const url = new URL(chrome.runtime.getURL('chat.html'));
   url.searchParams.set('thread', context.gmailKey);
@@ -49,6 +58,13 @@ function updateFrame(anchor, context) {
   if (matching.messageKey) url.searchParams.set('message-key', matching.messageKey);
   // A new URL clears the previous conversation's history and draft immediately.
   if (frame.src !== url.href) frame.src = url.href;
+  if (layoutAnchor !== anchor || layoutHost !== anchor.parentElement) {
+    clearLayout();
+    layoutAnchor = anchor;
+    layoutHost = anchor.parentElement;
+  }
+  if (!anchor.classList.contains('threadly-email')) anchor.classList.add('threadly-email');
+  if (!layoutHost.classList.contains('threadly-split')) layoutHost.classList.add('threadly-split');
   if (anchor.nextElementSibling !== frame) anchor.after(frame);
 }
 
@@ -61,6 +77,7 @@ function mountChat() {
     matching = undefined;
     frame?.remove();
     frame = undefined;
+    clearLayout();
     return;
   }
 
@@ -152,11 +169,10 @@ window.addEventListener('message', (event) => {
       threadKey:requested,...context,error:!context.text},extensionOrigin);
     return;
   }
-  if (event.data?.type !== 'threadly-height') return;
-  const height = Number(event.data.height);
-  if (Number.isFinite(height)) frame.style.height = `${Math.min(Math.max(Math.ceil(height), 60), 560)}px`;
 });
 // After an extension reload, the popup injects a fresh copy of this script.
 // The previous copy loses its runtime, so its frame has to go.
 for (const stale of document.querySelectorAll('#gmail-team-chat')) stale.remove();
+for (const stale of document.querySelectorAll('.threadly-email')) stale.classList.remove('threadly-email');
+for (const stale of document.querySelectorAll('.threadly-split')) stale.classList.remove('threadly-split');
 scheduleMount();

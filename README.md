@@ -1,6 +1,6 @@
 # Gmail Team Chat
 
-The Chrome extension adds private team discussions below Gmail threads. Members of the same workspace automatically share the discussion for the same email conversation. Unrelated email conversations and different workspaces remain separate. The extension sends comments, local thread identifiers, and a hash of the email conversation identity to Supabase; it does not upload email bodies, subjects, or raw headers.
+The Chrome extension adds private team discussions to the right of Gmail threads, alongside the email rather than below it. The sidebar stays beside the email on narrow windows; horizontal scrolling may be needed. Members of the same workspace automatically share the discussion for the same email conversation. Unrelated email conversations and different workspaces remain separate. The extension sends comments, local thread identifiers, and a hash of the email conversation identity to Supabase; it does not upload email bodies, subjects, or raw headers.
 
 ## Set up Supabase and Google
 

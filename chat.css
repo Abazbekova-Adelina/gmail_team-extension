@@ -113,7 +113,7 @@ h1 { font-size: 20px; line-height: 1.2; font-weight: 650; letter-spacing: -.5px;
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 240px;
+  min-height: 0;
 }
 
 .message-scroll {
@@ -313,13 +313,6 @@ body:not(.settings-page) #workspace-status:not(:empty) { padding-top: 12px; }
   #workspace-select { max-width: none; }
 }
 
-body.compact { height: auto; }
-body.compact .chat { height: auto; }
-body.compact .chat-header { padding-block: 12px; border-bottom: 0; }
-body.compact .brand-mark { flex-basis: 38px; width: 38px; height: 38px; border-radius: 10px; }
-body.compact .brand-mark img { width: 28px; height: 31px; }
-body.compact h1 { font-size: 17px; }
-body.compact .chat-description { margin-top: 2px; }
 #connected-workspace { max-width: 200px; font-size: 13px; }
 
 .assistant-toolbar {
