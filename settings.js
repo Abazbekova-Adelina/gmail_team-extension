@@ -1,25 +1,47 @@
 import { mountAccount } from './account.js';
 import { rpc, scopeError, supabase } from './backend.js';
 import { showDiscussionSettings } from './settings-discussion.js';
+import { showActivity } from './activity.js';
+import { gmailPermission } from './gmail-metadata.js';
+import { validDiscussionCode } from './thread-context.js';
 import { fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
 
 const page = new URL(location.href);
 const isPopup = page.searchParams.has('popup');
 const startSignIn = !isPopup && page.searchParams.has('sign-in');
+let startGmailAccess = !isPopup && page.searchParams.has('gmail-access');
+let inviteId = page.searchParams.get('invite');
+if (!validDiscussionCode(inviteId ?? '')) inviteId = null;
 if (isPopup) document.body.classList.add('settings-popup');
-if (startSignIn) history.replaceState(null, '', 'settings.html');
+if (startSignIn || startGmailAccess) history.replaceState(null, '', 'settings.html');
 
 const workspaceView = document.querySelector('#workspace-view');
 const workspaceSelect = document.querySelector('#workspace-select');
 const workspaceStatus = document.querySelector('#workspace-status');
 const ownerSettings = document.querySelector('#owner-settings');
 const memberSettings = document.querySelector('#member-settings');
+const workspaceControls = document.querySelector('#workspace-controls');
+const activityView = document.querySelector('#activity-view');
+const workspaceViewButton = document.querySelector('#workspace-view-button');
+const activityViewButton = document.querySelector('#activity-view-button');
+const createSettings = document.querySelector('#create-settings');
+const peopleSettings = document.querySelector('#people-settings');
 
 let currentUser;
 let workspaces = [];
 let selectedWorkspace = '';
 let refreshVersion = 0;
 let detailsVersion = 0;
+
+function showSettingsView(activity) {
+  workspaceControls.hidden = activity;
+  activityView.hidden = !activity;
+  workspaceViewButton.setAttribute('aria-pressed', String(!activity));
+  activityViewButton.setAttribute('aria-pressed', String(activity));
+}
+
+workspaceViewButton.addEventListener('click', () => showSettingsView(false));
+activityViewButton.addEventListener('click', () => showSettingsView(true));
 
 function selectedTeam() {
   return workspaces.find((team) => team.id === selectedWorkspace);
@@ -52,6 +74,8 @@ async function refreshWorkspaces(preferred) {
     workspaceSelect.options[0].disabled = true;
     workspaceSelect.disabled = !teams.length;
     renderInvitations(invitations);
+    if (!teams.length && !invitations.length) createSettings.open = true;
+    if (invitations.length) peopleSettings.open = true;
     workspaceStatus.textContent = teams.length ? '' : 'Create a workspace or accept an invitation to get started.';
     await selectWorkspace(preferredWorkspace(teams, userId));
   } catch (error) {
@@ -77,11 +101,50 @@ function settingsRow(label, action, onClick) {
   return row;
 }
 function renderInvitations(invitations) {
+  const featured = document.querySelector('#featured-invite');
+  featured.hidden = !inviteId;
+  featured.replaceChildren();
+  if (inviteId) {
+    const invitation = invitations.find((item) => item.id === inviteId);
+    if (invitation) {
+      featured.append(settingsRow(invitation.workspace_name, 'Accept invitation', (userId) => acceptInvitation(invitation.id, userId)));
+    } else {
+      featured.textContent = 'This invitation is unavailable for this account or has expired.';
+    }
+  }
   document.querySelector('#my-invitations').replaceChildren(...(invitations.length
-    ? invitations.map((invitation) => settingsRow(invitation.workspace_name, 'Accept', async (userId) => {
-      const id = await rpc('accept_workspace_invitation', {p_invitation_id: invitation.id});
-      if (currentUser?.id === userId) await refreshWorkspaces(id);
-    })) : [settingsRow('No pending invitations.')]));
+    ? invitations.map((invitation) => settingsRow(invitation.workspace_name, 'Accept',
+      (userId) => acceptInvitation(invitation.id, userId))) : [settingsRow('No pending invitations.')]));
+}
+
+async function acceptInvitation(invitationId, userId) {
+  const id = await rpc('accept_workspace_invitation', { p_invitation_id: invitationId });
+  if (currentUser?.id !== userId) return;
+  if (inviteId === invitationId) {
+    inviteId = null;
+    history.replaceState(null, '', 'settings.html');
+  }
+  await refreshWorkspaces(id);
+}
+
+function invitationRow(invite) {
+  const expired = new Date(invite.expires_at) < new Date();
+  const row = settingsRow(`${invite.email}${expired ? ' · Expired' : ''}`, 'Revoke', async () => {
+    await rpc('revoke_workspace_invitation', {p_invitation_id: invite.id});
+    await refreshTeamDetails();
+  });
+  if (!expired) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'text-button';
+    button.textContent = 'Copy link';
+    button.addEventListener('click', () => runTeamAction(button, async () => {
+      await navigator.clipboard.writeText(`https://gmail-team-chat.vercel.app/#invite=${invite.id}`);
+      workspaceStatus.textContent = 'Invitation link copied.';
+    }));
+    row.append(button);
+  }
+  return row;
 }
 async function refreshTeamDetails() {
   const version = ++detailsVersion;
@@ -108,10 +171,7 @@ async function refreshTeamDetails() {
         await refreshTeamDetails();
       })));
   document.querySelector('#pending-invitations').replaceChildren(...(invites.data.length
-    ? invites.data.map((invite) => settingsRow(`${invite.email}${new Date(invite.expires_at) < new Date() ? ' · Expired' : ''}`, 'Revoke', async () => {
-      await rpc('revoke_workspace_invitation', {p_invitation_id: invite.id});
-      await refreshTeamDetails();
-    })) : [settingsRow('No pending invitations.')]));
+    ? invites.data.map(invitationRow) : [settingsRow('No pending invitations.')]));
 }
 async function runTeamAction(button, action) {
   button.disabled = true;
@@ -126,6 +186,10 @@ async function runTeamAction(button, action) {
 mountAccount((user) => {
   if (currentUser?.id === user?.id) return;
   currentUser = user;
+  showSettingsView(false);
+  createSettings.open = false;
+  peopleSettings.open = false;
+  showActivity(user?.id);
   showDiscussionSettings(user?.id, '');
   refreshVersion++;
   detailsVersion++;
@@ -141,7 +205,14 @@ mountAccount((user) => {
   document.querySelector('#team-members').replaceChildren();
   document.querySelector('#create-workspace').reset();
   document.querySelector('#invite-member').reset();
-  if (user) void refreshWorkspaces();
+  if (user) {
+    void refreshWorkspaces().then(() => {
+      if (startGmailAccess && currentUser?.id === user.id) {
+        startGmailAccess = false;
+        matching.click();
+      }
+    });
+  }
 }, { isPopup, startSignIn });
 
 workspaceSelect.addEventListener('change', () => {
@@ -166,6 +237,7 @@ document.querySelector('#create-workspace').addEventListener('submit', (event) =
     const id = await rpc('create_workspace', {p_name: name});
     if (currentUser?.id !== userId) return;
     input.value = '';
+    createSettings.open = false;
     await refreshWorkspaces(id);
   });
 });
@@ -179,8 +251,23 @@ document.querySelector('#invite-member').addEventListener('submit', (event) => {
     if (currentUser?.id !== userId) return;
     input.value = '';
     if (selectedWorkspace === id) {
-      workspaceStatus.textContent = `Invitation ready for ${email}. They can accept it in Workspace settings.`;
+      workspaceStatus.textContent = `Invitation ready for ${email}. Copy its link under Pending invitations.`;
       await refreshTeamDetails();
     }
   });
 });
+
+const matching = document.querySelector('#enable-matching');
+if (chrome.runtime.getManifest().oauth2) {
+  matching.hidden = false;
+  void gmailPermission().then((token) => { matching.hidden = Boolean(token); }, () => {});
+  matching.addEventListener('click', () => runTeamAction(matching, async () => {
+    if (isPopup) {
+      await chrome.tabs.create({ url: chrome.runtime.getURL('settings.html?gmail-access=1') });
+      return;
+    }
+    if (!await gmailPermission(true)) throw new Error('Gmail access unavailable');
+    matching.hidden = true;
+    workspaceStatus.textContent = 'Gmail connected. Refresh your Gmail tab to match discussions.';
+  }));
+}

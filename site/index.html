@@ -6,11 +6,18 @@
     <meta name="description" content="Install Gmail Team Chat for Chrome.">
     <title>Gmail Team Chat</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="invite.js" defer></script>
   </head>
   <body>
     <main>
       <h1>Gmail Team Chat</h1>
       <p>Discuss email with your team, right below the conversation in Gmail. Create a private workspace, invite teammates, and keep a separate discussion for each thread.</p>
+
+      <section id="accept-invitation" hidden aria-labelledby="invite-title">
+        <h2 id="invite-title">Workspace invitation</h2>
+        <button class="download" type="button">Open invitation in Chrome</button>
+        <p role="status"></p>
+      </section>
 
       <section data-install hidden aria-labelledby="install-title">
         <h2 id="install-title">Install in Chrome</h2>
@@ -20,7 +27,7 @@
           <li>Open <code>chrome://extensions</code> and turn on Developer mode.</li>
           <li>Click <strong>Load unpacked</strong> and select the unzipped folder.</li>
           <li>Open Gmail Team Chat from Chrome’s extensions menu and sign in with Google. Reload Gmail and open a thread.</li>
-          <li>Create a workspace or accept your invitation in <strong>Manage team</strong>.</li>
+          <li>Create a workspace or accept your invitation in <strong>Workspace settings</strong>.</li>
         </ol>
       </section>
 

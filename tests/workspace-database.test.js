@@ -33,6 +33,8 @@ test('private workspace and per-thread database authorization', async (t) => {
   // An old public message must survive migration without being readable.
   await db.query(`insert into public.team_messages(author_id,author_name,client_id,body) values ($1,'Owner',gen_random_uuid(),'legacy public message')`, [owner]);
   await db.exec(await readFile(new URL('../supabase/migrations/20261121203000_private_workspaces_and_threads.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261122200000_thread_matching_and_activity.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261122210000_message_reactions.sql', import.meta.url), 'utf8'));
   const as = async (id) => {
     await db.exec('reset role');
     await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [id]);
@@ -57,6 +59,9 @@ test('private workspace and per-thread database authorization', async (t) => {
   await post(team,second,'second thread');
   assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1',[first]),1);
   const invite = await call('invite_workspace_member',[team,' Member@Example.com ']);
+  const messageKey = 'a'.repeat(64);
+  assert.equal(await call('match_thread_discussion',[team,'gmail:thread-one',messageKey]), first);
+  const mention = (await post(team,first,`Can you review this? @{${member}}`)).rows[0].id;
   await assert.rejects(() => post(null,null));
   await assert.rejects(() => db.query('insert into public.workspace_members values ($1,$2,$3)',[team,outsider,'Intruder']));
 
@@ -71,6 +76,10 @@ test('private workspace and per-thread database authorization', async (t) => {
   await assert.rejects(() => call('link_thread_discussion',[team,'gmail:other',first]));
   const otherTeam = await call('create_workspace',['Unrelated']);
   const otherThread = await call('open_thread_discussion',[otherTeam,'gmail:thread-one']);
+  assert.equal(await call('match_thread_discussion',[otherTeam,'gmail:thread-one',messageKey]), otherThread);
+  assert.notEqual(otherThread, first);
+  assert.equal(await scalar('select count(*)::int from public.chat_activity()'), 0);
+  await assert.rejects(() => call('set_message_reaction',[mention,'❤️']));
   await post(otherTeam,otherThread,'other workspace');
   await assert.rejects(() => post(otherTeam,first));
   await assert.rejects(() => call('link_thread_discussion',[otherTeam,'gmail:copy',first]));
@@ -80,14 +89,28 @@ test('private workspace and per-thread database authorization', async (t) => {
   assert.equal(invites.length,1);
   assert.equal(invites[0].workspace_name,'Design');
   assert.equal(await call('accept_workspace_invitation',[invite]),team);
-  assert.equal(await scalar('select count(*)::int from public.team_messages'),2);
+  assert.equal((await call('set_message_reaction',[mention,'❤️'])).emoji, '❤️');
+  assert.equal((await call('set_message_reaction',[mention,'👍'])).emoji, '👍');
+  await assert.rejects(() => call('set_message_reaction',[mention,'invalid']));
+  assert.equal(await scalar('select count(*)::int from public.message_reactions'),1);
+  assert.equal((await call('set_message_reaction',[mention,null])).emoji, null);
+  assert.equal(await scalar('select count(*)::int from public.team_messages'),3);
+  assert.equal(await call('match_thread_discussion',[team,'gmail:matched-mailbox-id',messageKey]), first);
+  const activity = (await db.query('select * from public.chat_activity() where discussion_id=$1', [first])).rows[0];
+  assert.equal(Number(activity.unread_count), 2);
+  assert.equal(Number(activity.mention_count), 1);
+  assert.equal(activity.gmail_key, 'gmail:matched-mailbox-id');
+  await call('mark_discussion_read',[first,mention]);
+  assert.equal(await scalar('select count(*)::int from public.chat_activity() where discussion_id=$1',[first]), 0);
   await post(team,first,'teammate reply');
   await assert.rejects(() => call('invite_workspace_member',[team,'another@example.com']));
   await assert.rejects(() => call('remove_workspace_member',[team,owner]));
   await assert.rejects(() => db.query('insert into public.team_messages(client_id,body,workspace_id,discussion_id,author_id) values (gen_random_uuid(),$1,$2,$3,$4)',['spoof',team,first,owner]));
   assert.equal(await call('link_thread_discussion',[team,'gmail:different-mailbox-id',first]),first);
   assert.equal(await call('open_thread_discussion',[team,'gmail:different-mailbox-id']),first);
-  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1',[first]),2);
+  assert.equal(await call('link_thread_discussion',[team,'gmail:manual-link',second]),second);
+  assert.equal(await call('match_thread_discussion',[team,'gmail:manual-link',messageKey]),second);
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1',[first]),3);
 
   await as(owner);
   const expired = await call('invite_workspace_member',[team,'member@example.com']).catch(() => null);
@@ -109,11 +132,14 @@ test('private workspace and per-thread database authorization', async (t) => {
   await assert.rejects(() => call('remove_workspace_member',[team,owner]));
   await as(member);
   assert.equal(await scalar('select count(*)::int from public.team_messages'),0);
+  assert.equal(await scalar('select count(*)::int from public.message_reactions'),0);
+  assert.equal(await scalar('select count(*)::int from public.chat_activity()'),0);
   await assert.rejects(() => post(team,first));
   await assert.rejects(() => call('open_thread_discussion',[team,'gmail:thread-one']));
   await db.exec('reset role; set role anon');
   await assert.rejects(() => call('create_workspace',['Anonymous']));
   await assert.rejects(() => db.query('select * from public.team_messages'));
+  await assert.rejects(() => db.query('select * from public.chat_activity()'));
   await db.exec('reset role');
   assert.equal(await scalar('select count(*)::int from public.team_messages where workspace_id is null'),1);
 });

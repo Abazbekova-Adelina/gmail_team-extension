@@ -3,13 +3,15 @@ import { rpc, scopeError, supabase } from './backend.js';
 import { discussionStorageKey, fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
 import { avatarElement, profileDetails } from './avatars.js';
 import { validDiscussionCode } from './thread-context.js';
+import { messageMatchKey } from './gmail-metadata.js';
+import { encodeMentions, mentionToken } from './mentions.js';
+import { mountMentions } from './mention-composer.js';
+import { dayLabel, localDay, timeLabel } from './chat-dates.js';
+import { reactionControls } from './reactions.js';
 
 const PAGE_SIZE = 100;
 // Older databases can still load history before the avatar migration is applied.
 const MESSAGE_FIELDS = '*';
-const dateFormat = new Intl.DateTimeFormat(undefined, {
-  month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-});
 const conversation = document.querySelector('#conversation');
 const messageScroll = document.querySelector('#message-scroll');
 const messageList = document.querySelector('#messages');
@@ -22,12 +24,17 @@ const sendButton = document.querySelector('#send');
 const chatStatus = document.querySelector('#chat-status');
 let activeChat;
 let currentUser;
-let workspaces = [];
 let selectedWorkspace = '';
 let selectionVersion = 0;
 let workspaceRefreshVersion = 0;
-const gmailKey = new URL(location.href).searchParams.get('thread');
+const context = new URL(location.href).searchParams;
+const gmailKey = context.get('thread');
+const apiThread = context.get('api-thread');
+const mailbox = context.get('mailbox');
 const workspaceStatus = document.querySelector('#workspace-status');
+let historyVisible = false;
+let matchKey;
+const refreshMentionConfirmation = mountMentions(messageInput, () => activeChat);
 
 function stopChat() {
   selectionVersion++;
@@ -39,6 +46,8 @@ function stopChat() {
   messageInput.value = '';
   messageInput.readOnly = false;
   sendButton.disabled = false;
+  messageInput.placeholder = 'Write a message…';
+  refreshMentionConfirmation();
 }
 function messageElement(message, chat) {
   const item = document.createElement('li');
@@ -47,6 +56,7 @@ function messageElement(message, chat) {
   const time = document.createElement('time');
   const body = document.createElement('p');
   const content = document.createElement('div');
+  const bubble = document.createElement('div');
   const ownMessage = message.author_id === chat.userId;
   const name = ownMessage ? chat.profile.name : message.author_name;
 
@@ -55,13 +65,49 @@ function messageElement(message, chat) {
   meta.className = 'message-meta';
   author.textContent = ownMessage ? 'You' : name;
   time.dateTime = message.created_at;
-  time.textContent = dateFormat.format(new Date(message.created_at));
+  time.textContent = timeLabel(new Date(message.created_at));
   body.className = 'message-body';
-  body.textContent = message.body;
-  meta.append(author, time);
-  content.append(meta, body);
+  let offset = 0;
+  for (const match of message.body.matchAll(mentionToken)) {
+    body.append(message.body.slice(offset, match.index));
+    const mention = document.createElement('span');
+    mention.className = 'message-mention';
+    mention.textContent = `@${chat.members.get(match[1].toLowerCase()) ?? 'Teammate'}`;
+    body.append(mention);
+    offset = match.index + match[0].length;
+  }
+  body.append(message.body.slice(offset));
+  meta.append(author);
+  bubble.className = 'message-bubble';
+  if (ownMessage) bubble.classList.add('message-bubble-own');
+  const footer = document.createElement('div');
+  footer.className = 'message-footer';
+  footer.append(reactionControls(message.id, chat, (id, emoji) => void setReaction(chat, id, emoji)), time);
+  bubble.append(body, footer);
+  content.append(meta, bubble);
   item.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), content);
   return item;
+}
+
+function messageRows(messages, chat) {
+  const rows = [];
+  let previousDay;
+  for (const message of messages) {
+    const date = new Date(message.created_at);
+    const day = localDay(date);
+    if (day !== previousDay) {
+      const separator = document.createElement('li');
+      const label = document.createElement('time');
+      separator.className = 'date-divider';
+      label.dateTime = day;
+      label.textContent = dayLabel(date);
+      separator.append(label);
+      rows.push(separator);
+      previousDay = day;
+    }
+    rows.push(messageElement(message, chat));
+  }
+  return rows;
 }
 
 function renderHistory(chat, { prepend = false } = {}) {
@@ -77,9 +123,34 @@ function renderHistory(chat, { prepend = false } = {}) {
   historyStatus.textContent = chat.historyError || (chat.messages.size ? '' : emptyMessage);
 
   const items = [...chat.messages.values()].sort((a, b) => a.id - b.id);
-  messageList.replaceChildren(...items.map((message) => messageElement(message, chat)));
+  messageList.replaceChildren(...messageRows(items, chat));
   if (prepend) messageScroll.scrollTop = previousTop + messageScroll.scrollHeight - previousHeight;
   else if (atBottom) messageScroll.scrollTop = messageScroll.scrollHeight;
+  markRead();
+}
+
+function markRead() {
+  const chat = activeChat;
+  if (!chat || !historyVisible || document.hidden || chat.reading
+    || messageScroll.scrollHeight - messageScroll.scrollTop - messageScroll.clientHeight >= 24) return;
+  const latest = [...chat.messages.keys()].reduce((max, id) => Math.max(max, id), 0);
+  if (latest <= chat.readThrough) return;
+  chat.reading = true;
+  void rpc('mark_discussion_read', { p_discussion_id: chat.discussionId, p_message_id: latest }).then(() => {
+    chat.reading = false;
+    chat.readThrough = latest;
+    if (chat === activeChat) markRead();
+  }, () => { chat.reading = false; });
+}
+
+async function loadMembers(chat) {
+  const { data, error } = await supabase.from('workspace_members').select('user_id,display_name')
+    .eq('workspace_id', chat.workspaceId).order('display_name');
+  if (error || chat !== activeChat) return;
+  chat.members = new Map(data.map((member) => [member.user_id, member.display_name]));
+  if (data.some((member) => member.user_id !== chat.userId)) messageInput.placeholder = 'Write a message… Type @name to mention someone.';
+  refreshMentionConfirmation();
+  if (chat.messages.size) renderHistory(chat);
 }
 
 function renderConnection(chat) {
@@ -96,6 +167,78 @@ function receiveMessage(chat, id, message) {
   chat.refresh?.set(id, message);
   applyChange(chat.messages, id, message);
   renderHistory(chat);
+}
+
+function storeReaction(reactions, reaction) {
+  const people = reactions.get(reaction.message_id) ?? new Map();
+  if (reaction.emoji) people.set(reaction.user_id, reaction);
+  else people.delete(reaction.user_id);
+  if (people.size) reactions.set(reaction.message_id, people);
+  else reactions.delete(reaction.message_id);
+}
+
+function receiveReaction(chat, reaction) {
+  if (chat !== activeChat) return;
+  chat.reactionRefresh?.set(`${reaction.message_id}:${reaction.user_id}`, reaction);
+  storeReaction(chat.reactions, reaction);
+  if (chat.messages.has(reaction.message_id)) renderHistory(chat);
+}
+
+function sameReactions(previous, current) {
+  if (previous.size !== current.size) return false;
+  for (const [id, people] of current) {
+    const before = previous.get(id);
+    if (before?.size !== people.size) return false;
+    for (const [userId, reaction] of people) {
+      const prior = before.get(userId);
+      if (prior?.emoji !== reaction.emoji || prior.avatar_url !== reaction.avatar_url) return false;
+    }
+  }
+  return true;
+}
+
+async function refreshReactions(chat) {
+  const changes = new Map();
+  const reactions = new Map();
+  chat.reactionRefresh = changes;
+  const ids = [...chat.messages.keys()];
+  try {
+    for (let start = 0; start < ids.length; start += 100) {
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase.from('message_reactions').select('message_id,user_id,emoji,avatar_url')
+          .eq('discussion_id', chat.discussionId).in('message_id', ids.slice(start, start + 100)).not('emoji', 'is', null)
+          .order('message_id').order('user_id').range(offset, offset + 999);
+        if (chat !== activeChat || chat.reactionRefresh !== changes || error) return;
+        for (const reaction of data) storeReaction(reactions, reaction);
+        if (data.length < 1000) break;
+      }
+    }
+    for (const reaction of changes.values()) storeReaction(reactions, reaction);
+    if (sameReactions(chat.reactions, reactions)) return;
+    chat.reactions = reactions;
+    renderHistory(chat);
+  } finally {
+    if (chat.reactionRefresh === changes) chat.reactionRefresh = null;
+  }
+}
+
+async function setReaction(chat, messageId, emoji) {
+  if (chat !== activeChat || chat.pendingReactions.has(messageId)) return;
+  chat.pendingReactions.add(messageId);
+  try {
+    const reaction = await rpc('set_message_reaction', { p_message_id: messageId, p_emoji: emoji });
+    if (chat !== activeChat) return;
+    chat.sendError = '';
+    receiveReaction(chat, reaction);
+    renderConnection(chat);
+  } catch (error) {
+    if (chat !== activeChat) return;
+    chat.sendError = error?.code === 'PGRST202'
+      ? 'Reactions need a database update.' : 'Couldn’t save the reaction. Try again.';
+    renderConnection(chat);
+  } finally {
+    chat.pendingReactions.delete(messageId);
+  }
 }
 
 function messageQuery(chat) {
@@ -124,6 +267,7 @@ async function refreshHistory(chat) {
     for (const [id, message] of changes) applyChange(chat.messages, id, message);
     chat.olderThan = earlierCursor(data);
     chat.loaded = true;
+    void refreshReactions(chat);
   }
   renderHistory(chat);
 }
@@ -149,6 +293,7 @@ async function loadEarlier(chat) {
   } else {
     for (const message of data) chat.messages.set(message.id, message);
     chat.olderThan = earlierCursor(data);
+    void refreshReactions(chat);
   }
   renderHistory(chat, { prepend: !error });
 }
@@ -181,20 +326,28 @@ async function openDiscussion(workspaceId, linkedId) {
     return;
   }
   try {
-    const discussionId = linkedId || await rpc('open_thread_discussion', {
-      p_workspace_id: workspaceId, p_gmail_key: gmailKey,
-    });
+    matchKey ??= messageMatchKey(apiThread);
+    const key = linkedId ? null : await matchKey;
+    if (version !== selectionVersion || currentUser?.id !== user.id) return;
+    const args = { p_workspace_id: workspaceId, p_gmail_key: gmailKey };
+    const discussionId = linkedId || (key
+      ? await rpc('match_thread_discussion', { ...args, p_message_key: key })
+      : await rpc('open_thread_discussion', args));
     if (version !== selectionVersion || currentUser?.id !== user.id) return;
     const chat = {
       userId: user.id, profile: profileDetails(user), workspaceId, discussionId,
       messages: new Map(), olderThan: null, refresh: null, loaded: false,
+      members: new Map(), readThrough: 0, reading: false,
+      reactions: new Map(), reactionRefresh: null, pendingReactions: new Set(),
       loadingEarlier: false, historyError: '', connection: 'Connecting…', sendError: '', draft: null,
     };
     activeChat = chat;
+    if (mailbox) localStorage.setItem(`mailbox:${user.id}:${gmailKey}`, mailbox);
     conversation.hidden = false;
     workspaceStatus.textContent = '';
     renderConnection(chat);
     void refreshHistory(chat);
+    void loadMembers(chat);
     chat.channel = supabase.channel(`discussion-${crypto.randomUUID()}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'team_messages',
@@ -267,12 +420,19 @@ retryHistoryButton.addEventListener('click', () => {
 compose.addEventListener('submit', async (event) => {
   event.preventDefault();
   const chat = activeChat;
-  const body = messageInput.value.trim();
-  if (!chat || !body || sendButton.disabled) return;
+  const text = messageInput.value.trim();
+  if (!chat || !text || sendButton.disabled) return;
+  const body = encodeMentions(text, chat.members, chat.userId);
+  if (body.length > 2000) {
+    chat.sendError = 'This message is too long. Shorten it and try again.';
+    renderConnection(chat);
+    return;
+  }
 
   if (chat.draft?.body !== body) chat.draft = { id: crypto.randomUUID(), body };
   sendButton.disabled = true;
   messageInput.readOnly = true;
+  refreshMentionConfirmation();
   chat.sendError = '';
   renderConnection(chat);
 
@@ -280,6 +440,7 @@ compose.addEventListener('submit', async (event) => {
     const message = await sendMessage(chat, chat.draft);
     if (chat !== activeChat) return;
     messageInput.value = '';
+    refreshMentionConfirmation();
     chat.draft = null;
     receiveMessage(chat, message.id, message);
     messageScroll.scrollTop = messageScroll.scrollHeight;
@@ -307,7 +468,19 @@ messageInput.addEventListener('keydown', (event) => {
 setInterval(() => { if (!document.hidden && currentUser) void refreshWorkspaces(); }, 30000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentUser) void refreshWorkspaces();
+  if (!document.hidden && activeChat) void refreshReactions(activeChat);
+  markRead();
 });
+
+setInterval(() => {
+  if (!document.hidden && historyVisible && activeChat && !activeChat.reactionRefresh) void refreshReactions(activeChat);
+}, 8000);
+
+new IntersectionObserver(([entry]) => {
+  historyVisible = entry.intersectionRatio >= 0.4;
+  markRead();
+}, { threshold: 0.4 }).observe(messageScroll);
+messageScroll.addEventListener('scroll', markRead);
 
 window.addEventListener('storage', (event) => {
   if (!currentUser) return;
