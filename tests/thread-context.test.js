@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { gmailApiThreadId, gmailThreadKey, validDiscussionCode } from '../thread-context.js';
+import { gmailThreadKey, validDiscussionCode } from '../thread-context.js';
+import { gmailMailboxPath, oldestLegacyMessageId } from '../email-identity.js';
 
 const threadA = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqRXv';
 const threadB = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqAAA';
@@ -21,45 +22,154 @@ test('discussion codes reject filters, URLs, and malformed IDs', () => {
   assert.equal(validDiscussionCode('a00b0000-0000-4000-8000-000000000001'), true);
   for (const code of ['', 'https://example.com', 'x,workspace_id=eq.123', 'a00b0000']) assert.equal(validDiscussionCode(code),false);
 });
-test('Gmail navigation clears old frame history and drafts and hides chat in inbox', async () => {
+const contentSource = (await readFile(new URL('../content.js', import.meta.url), 'utf8'))
+  .replace(/^import .*;\r?\n/gm, '');
+
+function contentHarness() {
   let visible = true;
+  let messageId = '1111111111111111';
   const frames = [];
-  const location = {hash:`#inbox/${threadA}`};
+  const requests = [];
+  const listeners = {};
+  const location = { hash: `#inbox/${threadA}`, pathname: '/mail/u/2/' };
+  const message = {
+    checkVisibility: () => visible,
+    getAttribute: () => messageId,
+    querySelector: () => null,
+    closest: () => null,
+  };
   const anchor = {
     nextElementSibling: null,
-    querySelector() { return {closest() {return null;}, getAttribute() {return null;}}; },
-    contains() {return false;},
-    matches() {return false;},
-    checkVisibility() {return visible;},
-    after(frame) {this.nextElementSibling = frame;},
+    querySelector(selector) { return selector.includes('data-legacy-thread-id') ? null : message; },
+    querySelectorAll() { return [message]; },
+    contains() { return false; },
+    matches() { return false; },
+    checkVisibility() { return visible; },
+    after(frame) { this.nextElementSibling = frame; },
   };
   const context = {
-    gmailThreadKey, gmailApiThreadId, location, URL,
-    requestAnimationFrame(fn) {fn();},
-    MutationObserver: class {observe(){}},
-    window: {addEventListener(){}},
-    chrome: {runtime:{getURL:(path) => `chrome-extension://test/${path}`, onMessage:{addListener(){}}}},
+    gmailThreadKey, gmailMailboxPath, oldestLegacyMessageId, location, URL, AbortController,
+    resolveEmailIdentity(mailbox, id, { signal }) {
+      return new Promise((resolve, reject) => requests.push({ mailbox, id, signal, resolve, reject }));
+    },
+    requestAnimationFrame(fn) { fn(); },
+    MutationObserver: class { observe() {} },
+    window: { addEventListener(type, handler) { listeners[type] = handler; } },
+    chrome: { runtime: { getURL: (path) => `chrome-extension://test/${path}` } },
     document: {
-      body:{}, querySelectorAll(selector) {return selector === '#gmail-team-chat' ? [] : [anchor];},
+      body: {}, querySelectorAll(selector) { return selector === '#gmail-team-chat' ? [] : [anchor]; },
       createElement() {
-        const frame = {src:'', remove(){anchor.nextElementSibling=null;}};
+        const frame = { src: '', remove() { anchor.nextElementSibling = null; } };
         frames.push(frame);
         return frame;
       },
     },
   };
   vm.createContext(context);
-  const source = (await readFile(new URL('../content.js', import.meta.url),'utf8')).replace(/^import .*;\r?\n/, '');
-  vm.runInContext(source,context);
-  const first = frames[0];
-  assert.equal(new URL(first.src).searchParams.get('thread'), `gmail:${threadA}`);
-  location.hash = `#inbox/${threadB}`;
-  vm.runInContext('mountChat()',context);
-  assert.equal(new URL(first.src).searchParams.get('thread'), `gmail:${threadB}`);
-  visible = false;
-  vm.runInContext('mountChat()',context);
-  assert.equal(anchor.nextElementSibling,null);
-  visible = true;
-  vm.runInContext('mountChat()',context);
-  assert.equal(frames.length,2);
+  vm.runInContext(contentSource, context);
+  return {
+    frames, requests, location, anchor, listeners,
+    mount() { vm.runInContext('mountChat()', context); },
+    setVisible(value) { visible = value; },
+    setMessage(value) { messageId = value; },
+    params() { return new URL(frames.at(-1).src).searchParams; },
+  };
+}
+
+const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+test('matching starts automatically in the current mailbox and passes only the hash to the frame', async () => {
+  const harness = contentHarness();
+  assert.equal(harness.params().get('thread'), `gmail:${threadA}`);
+  assert.equal(harness.params().get('mailbox'), '/mail/u/2/');
+  assert.equal(harness.params().get('match-state'), 'pending');
+  assert.equal(harness.params().has('message-key'), false);
+  assert.equal(harness.requests.length, 1);
+  assert.equal(harness.requests[0].mailbox, '/mail/u/2/');
+  assert.equal(harness.requests[0].id, '1111111111111111');
+  harness.requests[0].resolve('a'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('match-state'), 'ready');
+  assert.equal(harness.params().get('message-key'), 'a'.repeat(64));
+  assert.equal(harness.params().has('api-thread'), false);
+  harness.mount();
+  assert.equal(harness.requests.length, 1);
+});
+
+test('Gmail navigation clears old history and drafts, cancels stale matching, and hides chat in inbox', async () => {
+  const harness = contentHarness();
+  harness.location.hash = `#inbox/${threadB}`;
+  harness.setMessage('2222222222222222');
+  harness.listeners.hashchange();
+  assert.equal(harness.requests[0].signal.aborted, true);
+  assert.equal(harness.params().get('thread'), `gmail:${threadB}`);
+  assert.equal(harness.params().get('match-state'), 'pending');
+  harness.requests[0].resolve('a'.repeat(64));
+  await flush();
+  assert.equal(harness.params().has('message-key'), false);
+  harness.requests[1].resolve('b'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('message-key'), 'b'.repeat(64));
+  harness.setVisible(false);
+  harness.location.hash = '#inbox';
+  harness.mount();
+  assert.equal(harness.anchor.nextElementSibling, null);
+  harness.setVisible(true);
+  harness.location.hash = `#inbox/${threadB}`;
+  harness.mount();
+  assert.equal(harness.frames.length, 2);
+  assert.equal(harness.params().get('match-state'), 'pending');
+});
+
+test('a changed route cannot borrow the previous conversation DOM or its asynchronous result', async () => {
+  const harness = contentHarness();
+  // The route changes before Gmail replaces the old message elements.
+  harness.location.hash = `#inbox/${threadB}`;
+  harness.requests[0].resolve('a'.repeat(64));
+  await flush();
+  assert.equal(harness.params().has('message-key'), false);
+  harness.mount();
+  assert.equal(harness.requests.length, 1);
+  assert.equal(harness.params().get('match-state'), 'failed');
+  harness.setMessage('2222222222222222');
+  harness.mount();
+  assert.equal(harness.requests.length, 2);
+  harness.requests[1].resolve('b'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('message-key'), 'b'.repeat(64));
+});
+
+test('changing signed-in accounts cancels and resolves using the new account path', async () => {
+  const harness = contentHarness();
+  harness.location.pathname = '/mail/u/4/';
+  harness.mount();
+  assert.equal(harness.requests[0].signal.aborted, true);
+  assert.equal(harness.requests[1].mailbox, '/mail/u/4/');
+  harness.requests[0].resolve('a'.repeat(64));
+  await flush();
+  assert.equal(harness.params().has('message-key'), false);
+  harness.requests[1].resolve('b'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('mailbox'), '/mail/u/4/');
+  assert.equal(harness.params().get('message-key'), 'b'.repeat(64));
+});
+
+test('failure or unavailable message/account identity cannot create a local-only chat', async () => {
+  const harness = contentHarness();
+  harness.requests[0].reject(new Error('Gmail unavailable'));
+  await flush();
+  assert.equal(harness.params().get('match-state'), 'failed');
+  assert.equal(harness.params().has('message-key'), false);
+  harness.mount();
+  assert.equal(harness.requests.length, 1);
+  harness.setMessage(null);
+  harness.mount();
+  assert.equal(harness.params().get('match-state'), 'failed');
+  assert.equal(harness.requests.length, 1);
+  harness.setMessage('2222222222222222');
+  harness.location.pathname = '/mail/';
+  harness.mount();
+  assert.equal(harness.params().get('match-state'), 'failed');
+  assert.equal(harness.params().has('mailbox'), false);
+  assert.equal(harness.requests.length, 1);
 });

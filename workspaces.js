@@ -4,9 +4,6 @@ export function workspaceStorageKey(userId) {
   return `workspace:${userId}`;
 }
 
-export function discussionStorageKey(userId) {
-  return `discussion-change:${userId}`;
-}
 
 export async function fetchWorkspaces() {
   const { data, error } = await supabase.from('workspaces').select('id,name,owner_id').order('created_at');

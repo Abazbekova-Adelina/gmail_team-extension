@@ -118,6 +118,126 @@ test('private workspace and per-thread database authorization', async (t) => {
   assert.equal(await call('match_thread_discussion',[team,'gmail:manual-link',messageKey]),second);
   assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1',[first]),3);
 
+  // Different Gmail accounts can already have separate local discussions.
+  // Joining a shared code must expose both directions of the selected history,
+  // without leaking or silently moving messages from the previous discussion.
+  const separate = await call('open_thread_discussion', [team, 'gmail:previously-connected-copy']);
+  await post(team, separate, 'old separate history');
+  assert.equal(await call('link_thread_discussion', [team, 'gmail:previously-connected-copy', first]), first);
+  await post(team, first, 'reply after joining shared code');
+  const sharedHistory = await db.query('select body from public.team_messages where discussion_id=$1 order by id', [first]);
+  assert.deepEqual(sharedHistory.rows.map((row) => row.body), [
+    'private message', `Can you review this? @{${member}}`, 'teammate reply', 'reply after joining shared code',
+  ]);
+  await as(owner);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1 order by id desc limit 1', [first]), 'reply after joining shared code');
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [separate]), 1);
+
+  // Seed the histories that pre-automatic clients left in separate mailboxes.
+  const automaticKey = 'c'.repeat(64);
+  const unrelatedKey = 'b'.repeat(64);
+  const ambiguousKeys = ['d'.repeat(64), 'e'.repeat(64)];
+  const canonical = await call('open_thread_discussion', [team, 'gmail:automatic-owner']);
+  const originalMessage = (await post(team, canonical, 'owner existing email history')).rows[0].id;
+  assert.equal(await call('match_thread_discussion', [team, 'gmail:automatic-owner', automaticKey]), canonical);
+  const unrelated = await call('open_thread_discussion', [team, 'gmail:unrelated-email']);
+  await post(team, unrelated, 'unrelated email history');
+  await call('match_thread_discussion', [team, 'gmail:unrelated-email', unrelatedKey]);
+  const ambiguous = await call('open_thread_discussion', [team, 'gmail:legacy-mixed']);
+  await post(team, ambiguous, 'unattributable manual history');
+  for (const key of ambiguousKeys) await call('match_thread_discussion', [team, 'gmail:legacy-mixed', key]);
+  const adoptable = await call('open_thread_discussion', [team, 'gmail:unkeyed-original']);
+  await post(team, adoptable, 'unkeyed original history');
+  const manuallyLinked = await call('open_thread_discussion', [team, 'gmail:manual-unkeyed-original']);
+  await post(team, manuallyLinked, 'unkeyed manual history');
+
+  await as(member);
+  const localCopy = await call('open_thread_discussion', [team, 'gmail:automatic-member']);
+  const importedMessage = (await post(team, localCopy, 'member existing email history')).rows[0].id;
+  await call('set_message_reaction', [importedMessage, '❤️']);
+  await call('link_thread_discussion', [team, 'gmail:manual-unkeyed-copy', manuallyLinked]);
+  await call('mark_discussion_read', [canonical, originalMessage]);
+  await call('mark_discussion_read', [localCopy, importedMessage]);
+  await call('link_thread_discussion', [team, 'gmail:manual-auto-copy', unrelated]);
+  await db.exec('reset role');
+  await db.exec(await readFile(new URL('../supabase/migrations/20261123100000_automatic_thread_discussion.sql', import.meta.url), 'utf8'));
+
+  await as(member);
+  await assert.rejects(() => call('open_thread_discussion', [team, 'gmail:retired-open']));
+  await assert.rejects(() => call('match_thread_discussion', [team, 'gmail:retired-match', automaticKey]));
+  await assert.rejects(() => call('link_thread_discussion', [team, 'gmail:retired-link', canonical]));
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:automatic-member', automaticKey]), canonical);
+  assert.equal(await scalar('select count(*)::int from public.discussions where id=$1', [localCopy]), 0);
+  const merged = (await db.query('select id, body from public.team_messages where discussion_id=$1 order by id', [canonical])).rows;
+  assert.deepEqual(merged, [
+    { id: originalMessage, body: 'owner existing email history' },
+    { id: importedMessage, body: 'member existing email history' },
+  ]);
+  assert.equal(await scalar('select discussion_id from public.message_reactions where message_id=$1', [importedMessage]), canonical);
+  assert.equal(await scalar('select emoji from public.message_reactions where message_id=$1', [importedMessage]), '❤️');
+  assert.equal(await scalar('select discussion_id from public.discussion_bindings where gmail_key=$1', ['gmail:automatic-member']), canonical);
+  assert.equal(Number(await scalar('select unread_count from public.chat_activity() where discussion_id=$1', [canonical])), 1);
+  await db.exec('reset role');
+  assert.equal(await scalar('select count(*)::int from public.discussion_reads where discussion_id in ($1,$2)', [canonical, localCopy]), 0);
+  assert.equal(await scalar('select discussion_id from public.discussion_message_keys where workspace_id=$1 and message_key=$2', [team, automaticKey]), canonical);
+  await as(owner);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:automatic-owner', automaticKey]), canonical);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:another-owner-local-id', automaticKey]), canonical);
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [canonical]), 2);
+  await post(team, canonical, 'owner reply after automatic repair');
+  await as(member);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:automatic-member', automaticKey]), canonical);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1 order by id desc limit 1', [canonical]), 'owner reply after automatic repair');
+
+  // A manual binding and a changed hash must not pull unrelated histories in.
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:manual-auto-copy', automaticKey]), canonical);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1', [unrelated]), 'unrelated email history');
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:manual-unkeyed-copy', automaticKey]), canonical);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1', [manuallyLinked]), 'unkeyed manual history');
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:automatic-member', unrelatedKey]), unrelated);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:automatic-member', automaticKey]), canonical);
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [canonical]), 3);
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [unrelated]), 1);
+
+  // Quarantining mixed legacy hashes must persist after the first key moves;
+  // otherwise the final remaining key would incorrectly inherit mixed history.
+  await as(owner);
+  const repairedAmbiguous = [];
+  for (const key of ambiguousKeys) {
+    const discussion = await call('automatic_thread_discussion', [team, 'gmail:legacy-mixed', key]);
+    assert.notEqual(discussion, ambiguous);
+    assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [discussion]), 0);
+    repairedAmbiguous.push(discussion);
+  }
+  assert.notEqual(repairedAmbiguous[0], repairedAmbiguous[1]);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1', [ambiguous]), 'unattributable manual history');
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:legacy-mixed', ambiguousKeys[0]]), repairedAmbiguous[0]);
+
+  // No local-only fallback and no partial binding creation on bad identities.
+  for (const key of [null, '', 'not-a-hash', 'A'.repeat(64), 'a'.repeat(63), 'a'.repeat(65)]) {
+    await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:invalid-identity', key]), /verified email identity/);
+  }
+  for (const gmailKey of [null, '', 'x'.repeat(241)]) {
+    await assert.rejects(() => call('automatic_thread_discussion', [team, gmailKey, automaticKey]), /Open a Gmail thread/);
+  }
+  assert.equal(await scalar('select count(*)::int from public.discussion_bindings where gmail_key=$1', ['gmail:invalid-identity']), 0);
+  await as(outsider);
+  await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:automatic-owner', automaticKey]), /Workspace membership required/);
+  const isolated = await call('automatic_thread_discussion', [otherTeam, 'gmail:automatic-owner', automaticKey]);
+  assert.notEqual(isolated, canonical);
+  await post(otherTeam, isolated, 'same email in a different workspace');
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [canonical]), 0);
+  await as(member);
+  assert.equal(await scalar('select count(*)::int from public.team_messages where discussion_id=$1', [isolated]), 0);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:brand-new-local-id', automaticKey]), canonical);
+  const newKey = 'f'.repeat(64);
+  const newDiscussion = await call('automatic_thread_discussion', [team, 'gmail:new-email-member', newKey]);
+  assert.notEqual(newDiscussion, canonical);
+  await as(owner);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:new-email-owner', newKey]), newDiscussion);
+  assert.equal(await call('automatic_thread_discussion', [team, 'gmail:unkeyed-original', '1'.repeat(64)]), adoptable);
+  assert.equal(await scalar('select body from public.team_messages where discussion_id=$1', [adoptable]), 'unkeyed original history');
+
   await as(owner);
   const expired = await call('invite_workspace_member',[team,'member@example.com']).catch(() => null);
   assert.equal(expired,null); // existing members cannot be reinvited
@@ -142,8 +262,10 @@ test('private workspace and per-thread database authorization', async (t) => {
   assert.equal(await scalar('select count(*)::int from public.chat_activity()'),0);
   await assert.rejects(() => post(team,first));
   await assert.rejects(() => call('open_thread_discussion',[team,'gmail:thread-one']));
+  await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:automatic-member', automaticKey]));
   await db.exec('reset role; set role anon');
   await assert.rejects(() => call('create_workspace',['Anonymous']));
+  await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:automatic-owner', automaticKey]));
   await assert.rejects(() => db.query('select * from public.team_messages'));
   await assert.rejects(() => db.query('select * from public.chat_activity()'));
   await db.exec('reset role');

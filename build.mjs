@@ -31,12 +31,6 @@ if (supabaseUrl) {
   manifest.host_permissions = [...(manifest.host_permissions ?? []), `${url.protocol}//${url.hostname}/*`];
 }
 
-const gmailClientId = process.env.GMAIL_OAUTH_CLIENT_ID?.trim();
-if (gmailClientId) {
-  if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(gmailClientId)) throw new Error('Invalid Gmail OAuth client ID.');
-  manifest.oauth2 = { client_id: gmailClientId, scopes: ['https://www.googleapis.com/auth/gmail.metadata'] };
-  manifest.host_permissions = [...(manifest.host_permissions ?? []), 'https://gmail.googleapis.com/*'];
-}
 
 const extensionFiles = ['styles.css', 'chat.html', 'chat.css', 'settings.html', 'settings.css', 'assets/threadly-mark.png'];
 await mkdir('dist/assets', { recursive: true });

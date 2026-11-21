@@ -1,19 +1,16 @@
 import { mountAccount } from './account.js';
 import { rpc, scopeError, supabase } from './backend.js';
-import { showDiscussionSettings } from './settings-discussion.js';
 import { showActivity } from './activity.js';
-import { gmailPermission } from './gmail-metadata.js';
 import { validDiscussionCode } from './thread-context.js';
 import { fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
 
 const page = new URL(location.href);
 const isPopup = page.searchParams.has('popup');
 const startSignIn = !isPopup && page.searchParams.has('sign-in');
-let startGmailAccess = !isPopup && page.searchParams.has('gmail-access');
 let inviteId = page.searchParams.get('invite');
 if (!validDiscussionCode(inviteId ?? '')) inviteId = null;
 if (isPopup) document.body.classList.add('settings-popup');
-if (startSignIn || startGmailAccess) history.replaceState(null, '', 'settings.html');
+if (startSignIn) history.replaceState(null, '', 'settings.html');
 
 const workspaceView = document.querySelector('#workspace-view');
 const workspaceSelect = document.querySelector('#workspace-select');
@@ -56,7 +53,6 @@ function selectWorkspace(id) {
   workspaceSelect.value = id;
   ownerSettings.hidden = !isOwner();
   memberSettings.hidden = !id;
-  showDiscussionSettings(currentUser.id, id);
   return refreshTeamDetails();
 }
 
@@ -190,7 +186,6 @@ mountAccount((user) => {
   createSettings.open = false;
   peopleSettings.open = false;
   showActivity(user?.id);
-  showDiscussionSettings(user?.id, '');
   refreshVersion++;
   detailsVersion++;
   workspaces = [];
@@ -205,14 +200,7 @@ mountAccount((user) => {
   document.querySelector('#team-members').replaceChildren();
   document.querySelector('#create-workspace').reset();
   document.querySelector('#invite-member').reset();
-  if (user) {
-    void refreshWorkspaces().then(() => {
-      if (startGmailAccess && currentUser?.id === user.id) {
-        startGmailAccess = false;
-        matching.click();
-      }
-    });
-  }
+  if (user) void refreshWorkspaces();
 }, { isPopup, startSignIn });
 
 workspaceSelect.addEventListener('change', () => {
@@ -257,17 +245,3 @@ document.querySelector('#invite-member').addEventListener('submit', (event) => {
   });
 });
 
-const matching = document.querySelector('#enable-matching');
-if (chrome.runtime.getManifest().oauth2) {
-  matching.hidden = false;
-  void gmailPermission().then((token) => { matching.hidden = Boolean(token); }, () => {});
-  matching.addEventListener('click', () => runTeamAction(matching, async () => {
-    if (isPopup) {
-      await chrome.tabs.create({ url: chrome.runtime.getURL('settings.html?gmail-access=1') });
-      return;
-    }
-    if (!await gmailPermission(true)) throw new Error('Gmail access unavailable');
-    matching.hidden = true;
-    workspaceStatus.textContent = 'Gmail connected. Refresh your Gmail tab to match discussions.';
-  }));
-}

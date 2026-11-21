@@ -1,9 +1,12 @@
-import { gmailApiThreadId, gmailThreadKey } from './thread-context.js';
+import { gmailThreadKey } from './thread-context.js';
+import { gmailMailboxPath, oldestLegacyMessageId, resolveEmailIdentity } from './email-identity.js';
 
 const threadSelector = '[role="main"] :is(.a98.iY, .if, .PeIF1d, table.Bs > tbody > tr)';
 const messageSelector = '.adn, [data-message-id], [data-legacy-message-id]';
 let frame;
 let scheduled = false;
+let matching;
+let lastMessageContext;
 
 function findAnchor() {
   for (const thread of document.querySelectorAll(threadSelector)) {
@@ -22,21 +25,33 @@ function threadContext(anchor) {
   const threadId = source?.getAttribute('data-thread-id');
   return {
     gmailKey: anchor && gmailThreadKey(location.hash, legacyId, threadId),
-    apiThread: gmailApiThreadId(legacyId, threadId),
+    mailbox: gmailMailboxPath(location.pathname),
+    messageId: anchor && oldestLegacyMessageId(anchor),
   };
 }
 
-function threadLabel() {
-  const subject = document.querySelector('[role="main"] h2.hP')?.textContent.trim();
-  const [, titleSubject, account] = /^(.*) - ([^\s@]+@[^\s]+) - Gmail$/.exec(document.title) ?? [];
-  return { subject: subject || titleSubject || 'Untitled email', account: account ?? '' };
+function contextKey(context) {
+  return JSON.stringify([context.gmailKey, context.mailbox, context.messageId]);
+}
+
+function updateFrame(anchor, context) {
+  const url = new URL(chrome.runtime.getURL('chat.html'));
+  url.searchParams.set('thread', context.gmailKey);
+  if (context.mailbox) url.searchParams.set('mailbox', context.mailbox);
+  url.searchParams.set('match-state', matching.state);
+  if (matching.messageKey) url.searchParams.set('message-key', matching.messageKey);
+  // A new URL clears the previous conversation's history and draft immediately.
+  if (frame.src !== url.href) frame.src = url.href;
+  if (anchor.nextElementSibling !== frame) anchor.after(frame);
 }
 
 function mountChat() {
   scheduled = false;
   const anchor = findAnchor();
-  const { gmailKey, apiThread } = threadContext(anchor);
-  if (!anchor || !gmailKey) {
+  const context = threadContext(anchor);
+  if (!anchor || !context.gmailKey) {
+    matching?.controller.abort();
+    matching = undefined;
     frame?.remove();
     frame = undefined;
     return;
@@ -48,13 +63,39 @@ function mountChat() {
     frame.title = 'Team discussion';
   }
 
-  const url = new URL(chrome.runtime.getURL('chat.html'));
-  url.searchParams.set('thread', gmailKey);
-  if (apiThread) url.searchParams.set('api-thread', apiThread);
-  url.searchParams.set('mailbox', /^\/mail\/u\/\d+\//.exec(location.pathname)?.[0] ?? '/mail/u/0/');
-  // Changing threads creates a fresh frame, clearing the old history and draft.
-  if (frame.src !== url.href) frame.src = url.href;
-  if (anchor.nextElementSibling !== frame) anchor.after(frame);
+  const key = contextKey(context);
+  if (matching?.key === key) {
+    updateFrame(anchor, context);
+    return;
+  }
+  matching?.controller.abort();
+  // Hash navigation can precede Gmail replacing its message DOM. Never resolve
+  // the previous conversation's message under the newly opened thread's route.
+  const staleMessage = lastMessageContext
+    && lastMessageContext.mailbox === context.mailbox
+    && lastMessageContext.gmailKey !== context.gmailKey
+    && lastMessageContext.messageId === context.messageId;
+  const canMatch = context.mailbox && context.messageId && !staleMessage;
+  const request = matching = {
+    key, controller: new AbortController(), state: canMatch ? 'pending' : 'failed',
+  };
+  updateFrame(anchor, context);
+  if (!canMatch) return;
+  lastMessageContext = context;
+  const isCurrent = () => matching === request
+    && contextKey(threadContext(findAnchor())) === request.key;
+  resolveEmailIdentity(context.mailbox, context.messageId, { signal: request.controller.signal })
+    .then((messageKey) => {
+      if (!isCurrent()) return;
+      request.messageKey = messageKey;
+      request.state = 'ready';
+      updateFrame(findAnchor(), context);
+    })
+    .catch(() => {
+      if (!isCurrent()) return;
+      request.state = 'failed';
+      updateFrame(findAnchor(), context);
+    });
 }
 
 function scheduleMount() {
@@ -67,7 +108,7 @@ new MutationObserver(scheduleMount).observe(document.body, {
   childList: true,
   subtree: true,
   attributes: true,
-  attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+  attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'data-legacy-message-id', 'data-message-id', 'data-legacy-thread-id', 'data-thread-id'],
 });
 window.addEventListener('hashchange', scheduleMount);
 window.addEventListener('message', (event) => {
@@ -78,9 +119,4 @@ window.addEventListener('message', (event) => {
 // After an extension reload, the popup injects a fresh copy of this script.
 // The previous copy loses its runtime, so its frame has to go.
 for (const stale of document.querySelectorAll('#gmail-team-chat')) stale.remove();
-chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (message?.type !== 'get-gmail-thread' || sender.id !== chrome.runtime.id) return;
-  const context = threadContext(findAnchor());
-  respond(context.gmailKey ? { ...context, ...threadLabel() } : null);
-});
 scheduleMount();

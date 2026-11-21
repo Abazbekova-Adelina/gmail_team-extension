@@ -1,8 +1,7 @@
 import { watchAccount } from './account.js';
 import { rpc, scopeError, supabase } from './backend.js';
-import { discussionStorageKey, fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
+import { fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
 import { avatarElement, profileDetails } from './avatars.js';
-import { messageMatchKey } from './gmail-metadata.js';
 import { encodeMentions, mentionToken } from './mentions.js';
 import { mountMentions } from './mention-composer.js';
 import { dayLabel, localDay, timeLabel } from './chat-dates.js';
@@ -27,19 +26,15 @@ let selectedWorkspace = '';
 let workspaceRefreshVersion = 0;
 const context = new URL(location.href).searchParams;
 const gmailKey = context.get('thread');
-const apiThread = context.get('api-thread');
+const messageKey = context.get('message-key');
 const mailbox = context.get('mailbox');
 const workspaceStatus = document.querySelector('#workspace-status');
 const page = document.querySelector('.chat');
-const connectForm = document.querySelector('#connect-form');
-const connectSelect = document.querySelector('#connect-workspace');
-const connectButton = document.querySelector('#connect-button');
 const connectedSelect = document.querySelector('#connected-workspace');
 const chatDescription = document.querySelector('#chat-description');
 const CHAT_HEIGHT = 560;
 let reportedHeight = 0;
 let historyVisible = false;
-let matchKey;
 const refreshMentionConfirmation = mountMentions(messageInput, () => activeChat);
 
 function reportHeight() {
@@ -61,7 +56,6 @@ function stopChat() {
   messageInput.readOnly = false;
   sendButton.disabled = false;
   messageInput.placeholder = 'Write a message…';
-  connectForm.hidden = true;
   connectedSelect.hidden = true;
   chatDescription.textContent = 'Discuss this email privately with your team.';
   refreshMentionConfirmation();
@@ -282,12 +276,46 @@ async function refreshHistory(chat) {
     chat.historyError = 'Messages could not load.';
   } else {
     chat.messages = new Map(data.map((message) => [message.id, message]));
+    chat.catchUpThrough = data[0]?.id ?? 0;
     for (const [id, message] of changes) applyChange(chat.messages, id, message);
     chat.olderThan = earlierCursor(data);
     chat.loaded = true;
     void refreshReactions(chat);
   }
   renderHistory(chat);
+}
+
+// Postgres Changes is the fast path. Recover anything missed while a tab was
+// suspended or its socket was unavailable, without discarding paginated history.
+async function catchUpMessages(chat) {
+  if (chat !== activeChat || chat.catchingUp || chat.refresh || !chat.loaded) return;
+  chat.catchingUp = true;
+  let cursor = chat.catchUpThrough;
+  const messages = chat.messages;
+  try {
+    while (chat === activeChat) {
+      const { data, error } = await messageQuery(chat).gt('id', cursor)
+        .order('id', { ascending: true }).limit(PAGE_SIZE);
+      if (chat !== activeChat || chat.messages !== messages) return;
+      if (error) {
+        chat.historyError = 'Messages could not load.';
+        renderHistory(chat);
+        return;
+      }
+      for (const message of data) {
+        chat.refresh?.set(message.id, message);
+        chat.messages.set(message.id, message);
+      }
+      const hadError = Boolean(chat.historyError);
+      chat.historyError = '';
+      if (data.length || hadError) renderHistory(chat);
+      if (data.length) cursor = data.at(-1).id;
+      chat.catchUpThrough = cursor;
+      if (data.length < PAGE_SIZE) break;
+    }
+  } finally {
+    chat.catchingUp = false;
+  }
 }
 
 async function loadEarlier(chat) {
@@ -337,10 +365,6 @@ function validThreadKey() {
   return Boolean(gmailKey?.startsWith('gmail:') && gmailKey.length <= 240);
 }
 
-function threadMatchKey() {
-  matchKey ??= messageMatchKey(apiThread);
-  return matchKey;
-}
 
 function openDiscussion(workspaceId, discussionId) {
   stopChat();
@@ -363,7 +387,8 @@ function openDiscussion(workspaceId, discussionId) {
   void loadMembers(chat);
   chat.channel = supabase.channel(`discussion-${crypto.randomUUID()}`)
     .on('postgres_changes', {
-      event: 'INSERT', schema: 'public', table: 'team_messages',
+      // UPDATE also delivers preserved messages moved from a legacy split chat.
+      event: '*', schema: 'public', table: 'team_messages',
       filter: `discussion_id=eq.${discussionId}`,
     }, ({new: message}) => {
       if (message.workspace_id === workspaceId && message.discussion_id === discussionId) {
@@ -374,61 +399,28 @@ function openDiscussion(workspaceId, discussionId) {
       if (chat !== activeChat) return;
       chat.connection = status === 'SUBSCRIBED' ? 'Live · Workspace members only' : 'Updates paused. Reconnecting…';
       renderConnection(chat);
-      if (status === 'SUBSCRIBED') void refreshHistory(chat);
+      if (status === 'SUBSCRIBED') {
+        if (chat.loaded) void catchUpMessages(chat);
+        else void refreshHistory(chat);
+      }
     });
 }
 
-async function sharedDiscussions() {
-  const key = await threadMatchKey();
-  if (!key) return { key, rows: [] };
-  try {
-    return { key, rows: await rpc('shared_thread_discussions', { p_message_key: key }) };
-  } catch (error) {
-    if (error?.code === 'PGRST202') return { key, rows: [] };
-    throw error;
-  }
+async function automaticDiscussion(workspaceId) {
+  return rpc('automatic_thread_discussion', {
+    p_workspace_id: workspaceId, p_gmail_key: gmailKey, p_message_key: messageKey,
+  });
 }
 
-// Discussions exist only for emails someone connected with the button. A
-// teammate's connection is found through the shared Message-ID key and joined.
-async function connectedDiscussions(userId, teams) {
-  const member = new Set(teams.map((team) => team.id));
-  const { data, error } = await supabase.from('discussion_bindings').select('workspace_id,discussion_id')
-    .eq('user_id', userId).eq('gmail_key', gmailKey);
-  if (error) throw error;
-  const connected = new Map(data.filter((row) => member.has(row.workspace_id))
-    .map((row) => [row.workspace_id, row.discussion_id]));
-  const { key, rows } = await sharedDiscussions();
-  for (const row of rows) {
-    if (connected.has(row.workspace_id) || !member.has(row.workspace_id)) continue;
-    connected.set(row.workspace_id, await rpc('match_thread_discussion', {
-      p_workspace_id: row.workspace_id, p_gmail_key: gmailKey, p_message_key: key,
-    }));
-  }
-  return connected;
-}
-
-function showConnect(teams, userId) {
-  if (activeChat || connectForm.hidden) stopChat();
-  const current = connectSelect.value;
-  connectSelect.replaceChildren(...teams.map((team) => new Option(team.name, team.id)));
-  connectSelect.value = teams.some((team) => team.id === current) ? current : preferredWorkspace(teams, userId);
-  if (!connectButton.disabled) workspaceStatus.textContent = '';
-  connectForm.hidden = false;
-  reportHeight();
-}
-
-function showConnected(connected, teams, workspaceId) {
-  const names = new Map(teams.map((team) => [team.id, team.name]));
-  const discussionId = connected.get(workspaceId);
+function showConnected(discussionId, teams, workspaceId) {
   if (activeChat?.workspaceId !== workspaceId || activeChat.discussionId !== discussionId) {
     openDiscussion(workspaceId, discussionId);
   }
   selectedWorkspace = workspaceId;
-  connectedSelect.replaceChildren(...[...connected.keys()].map((id) => new Option(names.get(id), id)));
+  connectedSelect.replaceChildren(...teams.map((team) => new Option(team.name, team.id)));
   connectedSelect.value = workspaceId;
-  connectedSelect.hidden = connected.size < 2;
-  chatDescription.textContent = `Private discussion · ${names.get(workspaceId)}`;
+  connectedSelect.hidden = teams.length < 2;
+  chatDescription.textContent = `Private discussion · ${teams.find((team) => team.id === workspaceId).name}`;
 }
 
 async function refreshWorkspaces() {
@@ -440,6 +432,13 @@ async function refreshWorkspaces() {
     workspaceStatus.textContent = 'Open an email thread in Gmail to start a discussion.';
     return;
   }
+  if (!/^[a-f0-9]{64}$/.test(messageKey ?? '')) {
+    stopChat();
+    workspaceStatus.textContent = context.get('match-state') === 'failed'
+      ? 'Could not identify this email. Reload Gmail to try again. No separate chat was created.'
+      : 'Matching this email with your workspace…';
+    return;
+  }
   try {
     const teams = await fetchWorkspaces();
     if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
@@ -449,16 +448,11 @@ async function refreshWorkspaces() {
       workspaceStatus.textContent = 'Create a workspace or accept an invitation in Threadly settings.';
       return;
     }
-    const connected = await connectedDiscussions(userId, teams);
+    const next = teams.some((team) => team.id === selectedWorkspace)
+      ? selectedWorkspace : preferredWorkspace(teams, userId);
+    const discussionId = await automaticDiscussion(next);
     if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
-    if (!connected.size) {
-      selectedWorkspace = '';
-      showConnect(teams, userId);
-      return;
-    }
-    const preferred = preferredWorkspace(teams, userId);
-    const next = [selectedWorkspace, preferred].find((id) => connected.has(id)) ?? connected.keys().next().value;
-    showConnected(connected, teams, next);
+    showConnected(discussionId, teams, next);
   } catch (error) {
     if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
     stopChat();
@@ -466,26 +460,6 @@ async function refreshWorkspaces() {
   }
 }
 
-async function connectThread(workspaceId) {
-  const user = currentUser;
-  if (!user || !workspaceId || !validThreadKey() || connectButton.disabled) return;
-  connectButton.disabled = true;
-  workspaceStatus.textContent = 'Connecting this email…';
-  try {
-    const key = await threadMatchKey();
-    const args = { p_workspace_id: workspaceId, p_gmail_key: gmailKey };
-    await (key ? rpc('match_thread_discussion', { ...args, p_message_key: key })
-      : rpc('open_thread_discussion', args));
-    if (currentUser?.id !== user.id) return;
-    selectedWorkspace = workspaceId;
-    workspaceStatus.textContent = '';
-    await refreshWorkspaces();
-  } catch (error) {
-    if (currentUser?.id === user.id) workspaceStatus.textContent = scopeError(error);
-  } finally {
-    connectButton.disabled = false;
-  }
-}
 
 async function sendMessage(chat, draft) {
   const { data, error } = await supabase.from('team_messages')
@@ -505,10 +479,6 @@ async function sendMessage(chat, draft) {
 
 watchAccount(showAccount);
 new ResizeObserver(reportHeight).observe(page);
-connectForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  void connectThread(connectSelect.value);
-});
 connectedSelect.addEventListener('change', () => {
   selectedWorkspace = connectedSelect.value;
   void refreshWorkspaces();
@@ -570,12 +540,16 @@ messageInput.addEventListener('keydown', (event) => {
 setInterval(() => { if (!document.hidden && currentUser) void refreshWorkspaces(); }, 30000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentUser) void refreshWorkspaces();
-  if (!document.hidden && activeChat) void refreshReactions(activeChat);
+  if (!document.hidden && activeChat) {
+    void catchUpMessages(activeChat);
+    void refreshReactions(activeChat);
+  }
   markRead();
 });
 
 setInterval(() => {
   if (!document.hidden && historyVisible && activeChat && !activeChat.reactionRefresh) void refreshReactions(activeChat);
+  if (!document.hidden && historyVisible && activeChat) void catchUpMessages(activeChat);
 }, 8000);
 
 new IntersectionObserver(([entry]) => {
@@ -588,12 +562,5 @@ window.addEventListener('storage', (event) => {
   if (!currentUser) return;
   if (event.key === workspaceStorageKey(currentUser.id)) {
     void refreshWorkspaces();
-  }
-  if (event.key === discussionStorageKey(currentUser.id) && event.newValue) {
-    const { workspaceId, threadKey } = JSON.parse(event.newValue);
-    if (threadKey === gmailKey) {
-      selectedWorkspace = workspaceId;
-      void refreshWorkspaces();
-    }
   }
 });

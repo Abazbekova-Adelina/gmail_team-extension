@@ -41,7 +41,6 @@
           </div>
           <p id="workspace-status" role="status"></p>
           <div id="team-settings">
-            <button id="enable-matching" class="text-button" type="button" hidden>Connect Gmail for automatic matching</button>
             <details id="create-settings" class="settings-disclosure">
               <summary>Create a workspace</summary>
               <form id="create-workspace" class="settings-form">
@@ -72,32 +71,6 @@
               </section>
             </details>
         </div>
-        <details id="thread-sharing" class="settings-disclosure" hidden>
-          <summary>Connect an email discussion</summary>
-          <div class="discussion-heading">
-            <span id="discussion-thread-label">Email thread</span>
-            <button id="refresh-discussion-threads" class="text-button" type="button">Check again</button>
-          </div>
-          <div id="discussion-threads" class="thread-picker" role="radiogroup" aria-labelledby="discussion-thread-label"></div>
-          <p id="discussion-status" class="discussion-status" role="status"></p>
-          <div id="discussion-controls" class="discussion-controls" hidden>
-            <div id="discussion-share">
-              <label for="discussion-code">Share this discussion</label>
-              <div class="code-row">
-                <input id="discussion-code" readonly>
-                <button id="copy-discussion" class="text-button" type="button">Copy code</button>
-              </div>
-            </div>
-            <form id="link-discussion">
-              <label for="link-code">Join a teammate's discussion</label>
-              <div class="code-row">
-                <input id="link-code" placeholder="Paste their discussion code" required>
-                <button class="primary-button" type="submit">Connect</button>
-              </div>
-            </form>
-            <p class="settings-hint">Messages already posted stay in the previous discussion.</p>
-          </div>
-        </details>
         </div>
       </section>
 

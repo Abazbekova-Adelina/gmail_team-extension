@@ -1,6 +1,6 @@
 # Gmail Team Chat
 
-The Chrome extension adds private team discussions below Gmail threads. Only members of the selected workspace can read or post to that workspace. Each thread has its own discussion. The extension sends your comments and local thread identifiers to Supabase; it does not upload email bodies or subjects.
+The Chrome extension adds private team discussions below Gmail threads. Members of the same workspace automatically share the discussion for the same email conversation. Unrelated email conversations and different workspaces remain separate. The extension sends comments, local thread identifiers, and a hash of the email conversation identity to Supabase; it does not upload email bodies, subjects, or raw headers.
 
 ## Set up Supabase and Google
 
@@ -20,7 +20,7 @@ Authentication is stored in `chrome.storage.local`, shared between settings and 
 
 After `npm run build`, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `dist/manifest.json`. Temporary installations are removed when Firefox closes. The shared manifest uses a service worker in Chrome and a background script in Firefox; Firefox does not support extension background service workers.
 
-The Google OAuth setup and automatic Gmail matching above target Chrome. Firefox authentication and Gmail matching have not been verified.
+Google sign-in and Gmail matching target Chrome. Firefox authentication and Gmail matching have not been verified.
 
 ## Private teams and thread discussions
 
@@ -28,20 +28,22 @@ For an existing installation, apply `supabase/migrations/20261121193000_add_auth
 
 1. Click the **Gmail Team Chat** toolbar icon to open the settings popup. Right-click the icon and choose **Options** to open the same settings in a tab. Google sign-in opens in a separate tab. After signing in, enter a workspace name and choose **Create**. Your account becomes its owner.
 2. Owners invite teammates by their Google sign-in email. Recipients can choose **Accept** in **Workspace settings** after signing in. Choose **Refresh** to check for new invitations. Invitations expire after 7 days and are bound to the recipient’s verified email. The extension lists invitations in Workspace settings.
-3. Open an email and choose a workspace in the Threadly bar below it, then press **Connect Threadly**. The chat opens under the email. Only emails connected this way become team discussions, and opening an email never creates one. With automatic matching on, teammates in that workspace see the chat when they open the same email. Each workspace has its own history for each Gmail thread. If you connect one email to several workspaces, a menu in the chat header switches between them. Owners can revoke pending invitations and remove members. Access is enforced with database row-level security. Removing membership blocks new database reads and writes immediately; already-rendered history is cleared at the next membership refresh (every 30 seconds while visible, or when returning to the panel).
-4. If teammates see separate discussions for the same email, or automatic matching is off, both open the email and open the toolbar popup. Expand **Connect an email discussion** and pick the email. The teammate who connected it copies the discussion code, and the other pastes it into **Join a teammate's discussion** in the same workspace. Existing messages stay in the previous discussion. A discussion code never grants workspace membership.
+3. Open an email. Its discussion opens automatically in your selected workspace, including messages from teammates who opened the same email in their own Gmail accounts. No connect button, discussion codes, Gmail API setup, or additional OAuth consent is required. If you belong to several workspaces, switch using the chat header menu; each workspace has independent history.
+4. Owners can revoke pending invitations and remove members. Access is enforced with database row-level security. Removing membership blocks new database reads and writes immediately; already-rendered history is cleared at the next membership refresh (every 30 seconds while visible, or when returning to the panel).
 
 Google account photos appear beside messages, with initials if a photo is missing or unavailable. The avatar migration also backfills existing messages from sign-in metadata.
 
 ## Match threads, share invites, and track replies
 
-Apply `supabase/migrations/20261122200000_thread_matching_and_activity.sql` before using Activity or automatic matching. Rebuild the extension and install page after applying the migration.
+Apply all SQL migrations in filename order, including `supabase/migrations/20261123100000_automatic_thread_discussion.sql`, before loading the updated extension. This is an administrator deployment step, not per-user configuration. The automatic discussion RPC is required; older installations never fall back to creating disconnected per-user chats. Reload the extension and Gmail after deployment; old builds use retired manual-link RPCs.
 
-- For automatic matching, enable Gmail API in Google Cloud and create a separate **Chrome Extension** OAuth client for `ehlcjjpfplfhiaefiljbfehibbialjeh`. Set its client ID as `GMAIL_OAUTH_CLIENT_ID` at build time and authorize `https://www.googleapis.com/auth/gmail.metadata` on the consent screen. This restricted scope can require Google verification when publishing publicly. Each teammate can choose **Connect Gmail for automatic matching** in settings. The extension reads the oldest message’s RFC `Message-ID` and sends only its SHA-256 hash to Supabase. Matching is scoped to the workspace and preserves existing discussion bindings. Use a discussion code when metadata is unavailable or the copies have different IDs.
+- The Gmail content script reads original-message headers through the current signed-in mailbox. It hashes the root `References` Message-ID, or `In-Reply-To`, or the message’s own `Message-ID`. Only the SHA-256 hash crosses into the chat frame and Supabase. The same email conversation resolves to one discussion per workspace regardless of account-specific Gmail IDs. Gmail’s original-message web endpoint is not a public API; if Gmail changes it or headers are unavailable, the panel reports a matching error instead of creating a separate chat. Reload Gmail to retry.
 - After inviting a teammate, copy the link under **Pending invitations**. The link opens the install page, then takes an installed extension to the specific invitation. Acceptance still requires the recipient’s verified Google email. Publish the updated install page at `https://gmail-team-chat.vercel.app` to enable this handoff.
 - Type `@` in the message box to see teammates. Click a name or use the arrow keys and Enter. The composer confirms who will be mentioned, and sent mentions use an accent color. **Activity** in the popup shows unread messages and mentions. **Open in Gmail** is available after your mailbox has linked a local thread to the discussion. Viewing the latest messages clears the unread count.
 
-Apply `supabase/migrations/20261123090000_shared_thread_lookup.sql` so the chat finds emails a teammate already connected. Without it, each teammate presses **Connect Threadly** themselves.
+Existing account-specific discussions are reconciled automatically when the email is identified, preserving messages and reactions when the old history can safely be attributed to that email. Ambiguous legacy manual links are not used to merge unrelated email histories.
+
+Supabase Realtime delivers new messages in the shared discussion. Reconnecting, returning to the tab, and visible-chat checks every eight seconds recover missed messages without dropping loaded history.
 
 Apply `supabase/migrations/20261122210000_message_reactions.sql` to enable reactions. Click **Add reaction** on a message to pick an emoji. Click your reaction again to remove it. Changes from teammates appear when the chat refreshes.
 

@@ -1,5 +1,4 @@
-// Gmail's opaque route token identifies the local conversation, regardless of
-// which label/search route opened it. Cross-account copies can be linked by code.
+// Gmail's route token locates the local mailbox copy; it is not a shared email ID.
 export function gmailThreadKey(hash, legacyId, threadId) {
   const tail = hash.replace(/^#/, '').split('?')[0].split('/').at(-1);
   if (/^(?:[A-Za-z]{6,}[A-Za-z0-9_-]{8,}|[a-f0-9]{16,})$/.test(tail || '')) {
@@ -14,8 +13,3 @@ export function validDiscussionCode(value) {
   return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 }
 
-export function gmailApiThreadId(legacyId, threadId) {
-  if (/^[a-f0-9]{16,32}$/i.test(legacyId ?? '')) return legacyId.toLowerCase();
-  const match = /^(?:#?thread-[af]:)(\d{10,25})$/.exec(threadId ?? '');
-  return match ? BigInt(match[1]).toString(16) : null;
-}
