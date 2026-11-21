@@ -31,8 +31,8 @@ if (supabaseUrl) {
   manifest.host_permissions = [`${url.protocol}//${url.hostname}/*`];
 }
 
-const extensionFiles = ['styles.css', 'chat.html', 'chat.css', 'settings.html', 'settings.css'];
-await mkdir('dist', { recursive: true });
+const extensionFiles = ['styles.css', 'chat.html', 'chat.css', 'settings.html', 'settings.css', 'assets/threadly-mark.png'];
+await mkdir('dist/assets', { recursive: true });
 await Promise.all([
   build({
     entryPoints: ['chat.js', 'content.js', 'settings.js'],

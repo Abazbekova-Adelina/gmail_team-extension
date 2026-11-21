@@ -3,14 +3,22 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Team discussion</title>
+    <title>Threadly · Team discussion</title>
     <link rel="stylesheet" href="chat.css">
     <script type="module" src="chat.js"></script>
   </head>
   <body>
     <main class="chat" aria-labelledby="chat-title">
       <header class="chat-header">
-        <h1 id="chat-title">Team discussion</h1>
+        <div class="chat-brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="assets/threadly-mark.png" alt="" width="34" height="38">
+          </span>
+          <div class="brand-copy">
+            <h1 id="chat-title">Threadly</h1>
+            <p class="chat-description">Private team discussion</p>
+          </div>
+        </div>
       </header>
       <p id="workspace-status" role="status">Loading chat…</p>
 

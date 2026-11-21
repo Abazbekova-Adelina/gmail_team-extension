@@ -4,23 +4,23 @@
   --panel: #fff;
   --ink: #202124;
   --secondary: #4b5961;
-  --line: #dbe4e5;
-  --accent: #176552;
+  --line: #e5e1e7;
+  --accent: #56325c;
   --on-accent: #fff;
-  --subtle: #f5f8f7;
-  --avatar: #e6efea;
+  --subtle: #faf8fc;
+  --avatar: #efe8f2;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --panel: #20262b;
-    --ink: #e9eef0;
-    --secondary: #b9c4c9;
-    --line: #424f53;
-    --accent: #9ce4ca;
-    --on-accent: #11342a;
-    --subtle: #283136;
-    --avatar: #354b43;
+    --panel: #252127;
+    --ink: #f4eff5;
+    --secondary: #bfb4c2;
+    --line: #443b48;
+    --accent: #dfc5e7;
+    --on-accent: #35213b;
+    --subtle: #2d2731;
+    --avatar: #44354b;
   }
 }
 
@@ -54,16 +54,29 @@ body {
 
 .chat-header {
   flex-shrink: 0;
-  padding: 14px 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--line);
 }
 
 h1, p { margin: 0; }
-h1 { font-size: 19px; font-weight: 600; letter-spacing: -.3px; }
-[role="status"], time { color: var(--secondary); }
+h1 { font-size: 20px; line-height: 1.2; font-weight: 650; letter-spacing: -.5px; }
+.chat-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #ede6f3;
+}
+.brand-mark img { display: block; width: 34px; height: 38px; object-fit: contain; }
+.brand-copy { min-width: 0; }
+.chat-description { margin-top: 4px; font-size: 12px; line-height: 1.4; }
+.chat-description, [role="status"], time { color: var(--secondary); }
 
 .account-controls, .account-profile { display: flex; align-items: center; gap: 10px; }
-.account-controls { gap: 16px; }
+.account-controls { gap: 16px; flex-shrink: 0; }
 .account-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .avatar {
   position: relative;
@@ -190,6 +203,11 @@ button:disabled { opacity: .65; cursor: default; }
   .chat-header, .message-scroll, #compose { padding-inline: 12px; }
   .account-name { display: none; }
   .account-controls { gap: 10px; }
+  .chat-brand { gap: 10px; }
+  .brand-mark { flex-basis: 40px; width: 40px; height: 40px; border-radius: 10px; }
+  .brand-mark img { width: 29px; height: 33px; }
+  h1 { font-size: 19px; }
+  .chat-description { max-width: 230px; }
   .compose-row { align-items: flex-end; }
 }
 

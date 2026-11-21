@@ -17,6 +17,7 @@ if (configured) {
   const files = [
     'manifest.json', 'chat.html', 'chat.js', 'chat.css',
     'settings.html', 'settings.js', 'settings.css', 'content.js', 'styles.css',
+    'assets/threadly-mark.png',
   ];
   const entries = await Promise.all(files.map(async (file) => [file, await readFile(`dist/${file}`)]));
   await writeFile(archivePath, zipSync(Object.fromEntries(entries)));
