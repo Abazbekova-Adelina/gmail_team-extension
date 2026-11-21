@@ -81,15 +81,15 @@ function messageElement(message, chat, continuation) {
     offset = match.index + match[0].length;
   }
   body.append(message.body.slice(offset));
-  meta.append(author);
+  meta.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), author);
   bubble.className = 'message-bubble';
   if (ownMessage) bubble.classList.add('message-bubble-own');
   const footer = document.createElement('div');
   footer.className = 'message-footer';
-  footer.append(reactionControls(message.id, chat, (id, emoji) => void setReaction(chat, id, emoji)), time);
-  bubble.append(body, footer);
-  content.append(meta, bubble);
-  item.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), content);
+  footer.append(reactionControls(message.id, chat, (id, emoji) => void setReaction(chat, id, emoji)));
+  bubble.append(body, time);
+  content.append(meta, bubble, footer);
+  item.append(content);
   return item;
 }
 

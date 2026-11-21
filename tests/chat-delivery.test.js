@@ -79,6 +79,11 @@ async function controller(key = 'a'.repeat(64), localKey = 'gmail:local', reason
   return { ...context.controller, state, elements };
 }
 
+function messageText(element) {
+  if (element.className === 'message-body') return element.children.join('');
+  return (element.children ?? []).map((child) => typeof child === 'object' ? messageText(child) : '').join('');
+}
+
 const message = (id) => ({
   id, workspace_id: 'team', discussion_id: 'discussion', author_id: 'teammate', author_name: 'Teammate',
   body: `Reply ${id}`, created_at: '2026-11-21T12:00:00Z',
@@ -102,7 +107,7 @@ test('missed teammate replies recover across pages even after a newer realtime r
   assert.equal(current.messages.has(254), false);
   assert.equal(current.olderThan, 1); // Previously loaded history remains pageable.
   const rendered = app.elements.get('#messages').children;
-  assert.equal(rendered[2].children[1].children[1].children[0].children[0], 'Reply 2');
+  assert.equal(messageText(rendered[2]), 'Reply 2');
 });
 
 test('catch-up does not apply an old discussion response after switching discussions', async () => {
@@ -127,7 +132,7 @@ test('different mailbox copies automatically open the shared history without con
     await new Promise(setImmediate);
     assert.equal(app.elements.get('#conversation').hidden, false);
     const rendered = app.elements.get('#messages').children;
-    assert.equal(rendered[1].children[1].children[1].children[0].children[0], 'Reply 2');
+    assert.equal(messageText(rendered[1]), 'Reply 2');
     assert.equal(app.elements.get('#chat-description').textContent, 'Private discussion · Team');
   }
 });
