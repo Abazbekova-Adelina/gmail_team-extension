@@ -16,12 +16,16 @@ function findAnchor() {
   return null;
 }
 
+function getThreadKey(anchor) {
+  const source = anchor?.querySelector('[data-legacy-thread-id], [data-thread-id]');
+  return anchor && gmailThreadKey(location.hash,
+    source?.getAttribute('data-legacy-thread-id'), source?.getAttribute('data-thread-id'));
+}
+
 function mountChat() {
   scheduled = false;
   const anchor = findAnchor();
-  const source = anchor?.querySelector('[data-legacy-thread-id], [data-thread-id]');
-  const threadKey = anchor && gmailThreadKey(location.hash,
-    source?.getAttribute('data-legacy-thread-id'), source?.getAttribute('data-thread-id'));
+  const threadKey = getThreadKey(anchor);
   if (!anchor || !threadKey) {
     frame?.remove();
     frame = undefined;
@@ -54,4 +58,9 @@ new MutationObserver(scheduleMount).observe(document.body, {
   attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
 });
 window.addEventListener('hashchange', scheduleMount);
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type !== 'get-gmail-thread' || sender.id !== chrome.runtime.id) return;
+  const gmailKey = getThreadKey(findAnchor());
+  respond(gmailKey ? { gmailKey, title: document.title } : null);
+});
 scheduleMount();

@@ -31,11 +31,11 @@ if (supabaseUrl) {
   manifest.host_permissions = [`${url.protocol}//${url.hostname}/*`];
 }
 
-const extensionFiles = ['styles.css', 'chat.html', 'chat.css'];
+const extensionFiles = ['styles.css', 'chat.html', 'chat.css', 'settings.html', 'settings.css'];
 await mkdir('dist', { recursive: true });
 await Promise.all([
   build({
-    entryPoints: ['chat.js', 'content.js'],
+    entryPoints: ['chat.js', 'content.js', 'settings.js'],
     bundle: true,
     platform: 'browser',
     target: 'chrome120',

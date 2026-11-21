@@ -12,16 +12,16 @@ The Chrome extension adds private team discussions below Gmail threads. Only mem
 
 ## Build and load in Chrome
 
-Run `npm ci` and `npm run build` with Node.js 22 or newer. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `dist`. Open or refresh Gmail, open a thread, and sign in with Google.
+Run `npm ci` and `npm run build` with Node.js 22 or newer. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `dist`. Click the extension icon and sign in with Google. Open or refresh Gmail and open a thread.
 
 ## Private teams and thread discussions
 
 For an existing installation, apply `supabase/migrations/20261121193000_add_author_avatars.sql` if needed, then `supabase/migrations/20261121203000_private_workspaces_and_threads.sql`. Rebuild and reload the extension after applying the migrations. The new frontend refuses to open the old global chat when the private-workspace schema is missing. Privacy restrictions take effect on the server only when the migration is applied.
 
-1. Sign in with Google. Open **Manage team**, enter a workspace name, and choose **Create**. Your account becomes its owner.
-2. Owners invite teammates by their Google sign-in email. Invitations appear in the recipient’s **Manage team** section after they sign in and choose **Refresh**. Choose **Accept** to join. Invitations expire after 7 days and are bound to the recipient’s verified email. This version creates in-app invitations; it does not send email.
+1. Click the **Gmail Team Chat** toolbar icon to open the settings popup. Right-click the icon and choose **Options** to open the same settings in a tab. Google sign-in opens in a separate tab. After signing in, enter a workspace name and choose **Create**. Your account becomes its owner.
+2. Owners invite teammates by their Google sign-in email. Recipients can choose **Accept** in **Workspace settings** after signing in. Choose **Refresh** to check for new invitations. Invitations expire after 7 days and are bound to the recipient’s verified email. The extension lists invitations in Workspace settings.
 3. Use the workspace menu to switch teams. Each workspace has its own history for each Gmail thread. Owners can revoke pending invitations and remove members. Access is enforced with database row-level security. Removing membership blocks new database reads and writes immediately; already-rendered history is cleared at the next membership refresh (every 30 seconds while visible, or when returning to the panel).
-4. Gmail’s local conversation IDs can differ between accounts. If teammates see separate discussions for the same email, expand **Connect a teammate’s copy of this email**. One teammate copies the discussion code, and the other pastes it into **Connect to code** in the same workspace. This links their local email thread to that discussion. It does not merge or delete existing history. A discussion code never grants workspace membership.
+4. If teammates see separate discussions for the same email, both open the email thread and go to **Workspace settings**. Expand **Connect a teammate’s copy of this email** and confirm the selected Gmail thread. One teammate copies the discussion code, and the other pastes it into **Connect to code** in the same workspace. Existing messages stay in the previous discussion. A discussion code never grants workspace membership.
 
 Google account photos appear beside messages, with initials if a photo is missing or unavailable. The avatar migration also backfills existing messages from sign-in metadata. No additional Google API permissions are required.
 

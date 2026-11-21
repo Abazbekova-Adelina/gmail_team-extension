@@ -1,0 +1,60 @@
+.settings-page {
+  height: auto;
+  min-height: 100dvh;
+  padding: clamp(16px, 5vw, 48px) 12px;
+  background: var(--subtle);
+}
+
+.settings-page .chat {
+  max-width: 640px;
+  height: auto;
+  margin-inline: auto;
+}
+
+.settings-page .sign-in { min-height: 160px; }
+.settings-page #workspace-view { border-bottom: 0; }
+
+.settings-popup {
+  width: 440px;
+  min-height: 0;
+  padding: 0;
+  background: var(--panel);
+}
+
+.settings-popup .chat {
+  max-height: 560px;
+  border: 0;
+  border-radius: 0;
+}
+
+.settings-popup .chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+#team-settings {
+  padding: 8px 20px 18px;
+  border-top: 1px solid var(--line);
+}
+
+#team-settings section + section { margin-top: 16px; }
+#team-settings h2 { margin: 10px 0 4px; font-size: 14px; font-weight: 600; }
+
+.settings-list { padding: 0; margin: 0; list-style: none; }
+.settings-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; }
+.settings-list li span { overflow-wrap: anywhere; min-width: 0; }
+.settings-hint { font-size: 12px; color: var(--secondary); }
+
+#thread-sharing { padding: 14px 20px; border-top: 1px solid var(--line); }
+#thread-sharing summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+#thread-sharing[open] summary { margin-bottom: 10px; }
+#thread-sharing label { font-size: 13px; }
+#thread-sharing p { font-size: 13px; color: var(--secondary); }
+#discussion-tab { display: block; width: 100%; margin: 4px 0 8px; }
+#discussion-code { font: 12px monospace; }
+
+@media (max-width: 600px) {
+  #team-settings, #thread-sharing { padding-inline: 12px; }
+}

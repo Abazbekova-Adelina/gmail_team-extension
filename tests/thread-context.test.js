@@ -38,7 +38,7 @@ test('Gmail navigation clears old frame history and drafts and hides chat in inb
     requestAnimationFrame(fn) {fn();},
     MutationObserver: class {observe(){}},
     window: {addEventListener(){}},
-    chrome: {runtime:{getURL:(path) => `chrome-extension://test/${path}`}},
+    chrome: {runtime:{getURL:(path) => `chrome-extension://test/${path}`, onMessage:{addListener(){}}}},
     document: {
       body:{}, querySelectorAll() {return [anchor];},
       createElement() {
@@ -49,7 +49,7 @@ test('Gmail navigation clears old frame history and drafts and hides chat in inb
     },
   };
   vm.createContext(context);
-  const source = (await readFile(new URL('../content.js', import.meta.url),'utf8')).replace(/^import .*;\n/, '');
+  const source = (await readFile(new URL('../content.js', import.meta.url),'utf8')).replace(/^import .*;\r?\n/, '');
   vm.runInContext(source,context);
   const first = frames[0];
   assert.equal(new URL(first.src).searchParams.get('thread'), `gmail:${threadA}`);

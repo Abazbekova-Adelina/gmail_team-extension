@@ -14,7 +14,10 @@ await Promise.all([
 ]);
 
 if (configured) {
-  const files = ['manifest.json', 'chat.html', 'chat.js', 'chat.css', 'content.js', 'styles.css'];
+  const files = [
+    'manifest.json', 'chat.html', 'chat.js', 'chat.css',
+    'settings.html', 'settings.js', 'settings.css', 'content.js', 'styles.css',
+  ];
   const entries = await Promise.all(files.map(async (file) => [file, await readFile(`dist/${file}`)]));
   await writeFile(archivePath, zipSync(Object.fromEntries(entries)));
 } else {
