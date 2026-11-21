@@ -1,5 +1,6 @@
 import { gmailThreadKey } from './thread-context.js';
-import { gmailMailboxPath, oldestLegacyMessageId, resolveEmailIdentity } from './email-identity.js';
+import { EmailIdentityError, gmailMailboxPath, gmailSessionKey, oldestMessageId } from './email-identity.js';
+import { requestEmailIdentity } from './email-identity-bridge.js';
 
 const threadSelector = '[role="main"] :is(.a98.iY, .if, .PeIF1d, table.Bs > tbody > tr)';
 const messageSelector = '.adn, [data-message-id], [data-legacy-message-id]';
@@ -23,15 +24,20 @@ function threadContext(anchor) {
   const source = anchor?.querySelector('[data-legacy-thread-id], [data-thread-id]');
   const legacyId = source?.getAttribute('data-legacy-thread-id');
   const threadId = source?.getAttribute('data-thread-id');
+  const mailbox = gmailMailboxPath(location.pathname);
   return {
     gmailKey: anchor && gmailThreadKey(location.hash, legacyId, threadId),
-    mailbox: gmailMailboxPath(location.pathname),
-    messageId: anchor && oldestLegacyMessageId(anchor),
+    mailbox,
+    sessionKey: gmailSessionKey(mailbox, [
+      ...[...document.querySelectorAll('a[href*="ik="]')].map((link) => link.href),
+      ...(globalThis.performance?.getEntriesByType('resource') ?? []).map((entry) => entry.name),
+    ]),
+    messageId: anchor && oldestMessageId(anchor),
   };
 }
 
 function contextKey(context) {
-  return JSON.stringify([context.gmailKey, context.mailbox, context.messageId]);
+  return JSON.stringify([context.gmailKey, context.mailbox, context.messageId, context.sessionKey]);
 }
 
 function updateFrame(anchor, context) {
@@ -39,6 +45,7 @@ function updateFrame(anchor, context) {
   url.searchParams.set('thread', context.gmailKey);
   if (context.mailbox) url.searchParams.set('mailbox', context.mailbox);
   url.searchParams.set('match-state', matching.state);
+  if (matching.error) url.searchParams.set('match-error', matching.error);
   if (matching.messageKey) url.searchParams.set('message-key', matching.messageKey);
   // A new URL clears the previous conversation's history and draft immediately.
   if (frame.src !== url.href) frame.src = url.href;
@@ -78,22 +85,30 @@ function mountChat() {
   const canMatch = context.mailbox && context.messageId && !staleMessage;
   const request = matching = {
     key, controller: new AbortController(), state: canMatch ? 'pending' : 'failed',
+    error: !context.mailbox ? 'Gmail account path is unavailable'
+      : !context.messageId ? 'Gmail has not exposed a message ID'
+      : staleMessage ? 'Waiting for Gmail to load the opened email' : undefined,
   };
   updateFrame(anchor, context);
   if (!canMatch) return;
   lastMessageContext = context;
   const isCurrent = () => matching === request
     && contextKey(threadContext(findAnchor())) === request.key;
-  resolveEmailIdentity(context.mailbox, context.messageId, { signal: request.controller.signal })
+  requestEmailIdentity(context.mailbox, context.messageId, {
+    signal: request.controller.signal, sessionKey: context.sessionKey,
+  })
     .then((messageKey) => {
       if (!isCurrent()) return;
       request.messageKey = messageKey;
       request.state = 'ready';
       updateFrame(findAnchor(), context);
     })
-    .catch(() => {
+    .catch((error) => {
       if (!isCurrent()) return;
       request.state = 'failed';
+      request.error = error instanceof EmailIdentityError ? error.message
+        : error?.name === 'TimeoutError' ? 'Gmail original-message request timed out'
+        : 'Gmail original-message request failed (network, redirect, or browser restriction)';
       updateFrame(findAnchor(), context);
     });
 }
@@ -111,8 +126,20 @@ new MutationObserver(scheduleMount).observe(document.body, {
   attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'data-legacy-message-id', 'data-message-id', 'data-legacy-thread-id', 'data-thread-id'],
 });
 window.addEventListener('hashchange', scheduleMount);
+// Gmail can expose its session key in a request after the message first mounts.
+if (globalThis.PerformanceObserver) {
+  new PerformanceObserver(scheduleMount).observe({ type: 'resource', buffered: true });
+}
 window.addEventListener('message', (event) => {
-  if (!frame || event.source !== frame.contentWindow || event.data?.type !== 'threadly-height') return;
+  if (!frame || event.source !== frame.contentWindow) return;
+  if (event.data?.type === 'threadly-retry-match') {
+    if (matching?.state !== 'failed') return;
+    matching.controller.abort();
+    matching = undefined;
+    scheduleMount();
+    return;
+  }
+  if (event.data?.type !== 'threadly-height') return;
   const height = Number(event.data.height);
   if (Number.isFinite(height)) frame.style.height = `${Math.min(Math.max(Math.ceil(height), 60), 560)}px`;
 });

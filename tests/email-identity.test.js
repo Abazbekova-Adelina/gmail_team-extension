@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  conversationMessageId, gmailMailboxPath, oldestLegacyMessageId,
+  conversationMessageId, gmailMailboxPath, gmailSessionKey, oldestMessageId,
   readMessageHeaders, resolveEmailIdentity,
 } from '../email-identity.js';
 
@@ -59,15 +59,37 @@ test('the account path is explicit and never defaults to another signed-in accou
   }
 });
 
-test('the first visible message supplies its legacy message ID, never its thread ID', () => {
-  const message = (id, visible = true) => ({
-    checkVisibility: () => visible,
-    getAttribute: () => id,
-    querySelector: () => null,
+test('the first message ID is usable even when collapsed, without selecting layout wrappers', () => {
+  const message = (legacy, current = null) => ({
+    getAttribute: (name) => name === 'data-legacy-message-id' ? legacy : current,
   });
-  assert.equal(oldestLegacyMessageId({ querySelectorAll: () => [message('1111111111111111', false), message(legacyId.toUpperCase()), message('2222222222222222')] }), legacyId);
-  assert.equal(oldestLegacyMessageId({ querySelectorAll: () => [message(null), message(legacyId)] }), null);
-  assert.equal(oldestLegacyMessageId({ querySelectorAll: () => [message('thread-f:12345678912345')] }), null);
+  const anchor = (first) => ({
+    querySelector: () => first,
+  });
+  assert.equal(oldestMessageId(anchor(message(legacyId.toUpperCase()))), legacyId);
+  assert.equal(oldestMessageId(anchor(message(null, '#msg-f:1882481198916350244'))), 'msg-f:1882481198916350244');
+  assert.equal(oldestMessageId(anchor(message(null, 'msg-a:123456789'))), 'msg-a:123456789');
+  assert.equal(oldestMessageId(anchor(message(null, 'thread-f:12345678912345'))), null);
+  assert.equal(oldestMessageId(anchor(null)), null);
+});
+
+test('session discovery stays in the current Gmail account', () => {
+  const urls = [
+    'https://example.com/mail/u/2/?ik=wrongorigin',
+    'https://mail.google.com/mail/u/0/?ik=wrongaccount',
+    'not a URL',
+    'https://mail.google.com/mail/u/2/?view=att&ik=abc123',
+  ];
+  assert.equal(gmailSessionKey('/mail/u/2/', urls), 'abc123');
+  assert.equal(gmailSessionKey('/mail/u/3/', urls), null);
+});
+
+test('original download includes the discovered Gmail session key', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(new URL(url).searchParams.get('ik'), 'abc123');
+    return streamed(['Message-ID: <Root@example.com>\r\n\r\n']).response;
+  });
+  assert.equal(await resolveEmailIdentity('/mail/u/2/', legacyId, { sessionKey: 'abc123' }), hash('<Root@example.com>'));
 });
 
 test('streaming stops at a split CRLF header boundary and cancels before body reads', async () => {
@@ -105,6 +127,13 @@ test('incomplete, oversized, HTML and HTTP-error responses fail and cancel', asy
   }
 });
 
+test('unavailable originals distinguish Gmail HTTP errors from HTML responses', async () => {
+  await assert.rejects(readMessageHeaders(new Response('Forbidden', { status: 403 })), /Gmail returned HTTP 403/);
+  await assert.rejects(readMessageHeaders(new Response('<html>Sign in</html>', {
+    headers: { 'content-type': 'text/html' },
+  })), /web page instead of original-message headers/);
+});
+
 test('two mailbox copies match; unrelated same-subject emails and case-distinct IDs do not', async (t) => {
   const ids = ['<Root@Example.com>', '<Root@Example.com>', '<other@Example.com>', '<root@Example.com>'];
   const requests = [];
@@ -126,8 +155,8 @@ test('two mailbox copies match; unrelated same-subject emails and case-distinct 
   assert.equal(requests[0].url.searchParams.get('view'), 'att');
   assert.equal(requests[0].url.searchParams.get('attid'), '0');
   assert.equal(requests[0].url.searchParams.get('disp'), 'comp');
-  assert.equal(requests[0].options.credentials, 'same-origin');
-  assert.equal(requests[0].options.redirect, 'error');
+  assert.equal(requests[0].options.credentials, 'include');
+  assert.equal(requests[0].options.redirect, 'follow');
   assert.equal(requests[0].options.cache, 'no-store');
   assert.equal(requests[0].options.body, undefined);
 });

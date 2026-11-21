@@ -1,4 +1,7 @@
 import { validDiscussionCode } from './thread-context.js';
+import { installEmailIdentityBridge } from './email-identity-bridge.js';
+
+installEmailIdentityBridge();
 
 chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   if (sender.origin !== 'https://gmail-team-chat.vercel.app' || message?.type !== 'open-invite'

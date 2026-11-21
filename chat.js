@@ -16,6 +16,7 @@ const messageList = document.querySelector('#messages');
 const loadEarlierButton = document.querySelector('#load-earlier');
 const retryHistoryButton = document.querySelector('#retry-history');
 const historyStatus = document.querySelector('#history-status');
+const retryMatchButton = document.querySelector('#retry-match');
 const compose = document.querySelector('#compose');
 const messageInput = document.querySelector('#message-input');
 const sendButton = document.querySelector('#send');
@@ -51,6 +52,7 @@ function stopChat() {
   activeChat = undefined;
   if (previous?.channel) void supabase.removeChannel(previous.channel);
   conversation.hidden = true;
+  retryMatchButton.hidden = true;
   messageList.replaceChildren();
   messageInput.value = '';
   messageInput.readOnly = false;
@@ -434,9 +436,12 @@ async function refreshWorkspaces() {
   }
   if (!/^[a-f0-9]{64}$/.test(messageKey ?? '')) {
     stopChat();
-    workspaceStatus.textContent = context.get('match-state') === 'failed'
-      ? 'Could not identify this email. Reload Gmail to try again. No separate chat was created.'
+    const failed = context.get('match-state') === 'failed';
+    workspaceStatus.textContent = failed
+      ? `Could not identify this email. ${context.get('match-error') || 'Gmail did not provide its shared email identity'}.`
       : 'Matching this email with your workspace…';
+    retryMatchButton.hidden = !failed;
+    reportHeight();
     return;
   }
   try {
@@ -487,6 +492,9 @@ if (!supabase) workspaceStatus.textContent = 'This build needs a Supabase projec
 loadEarlierButton.addEventListener('click', () => void loadEarlier(activeChat));
 retryHistoryButton.addEventListener('click', () => {
   if (activeChat) void refreshHistory(activeChat);
+});
+retryMatchButton.addEventListener('click', () => {
+  parent.postMessage({ type: 'threadly-retry-match' }, 'https://mail.google.com');
 });
 
 compose.addEventListener('submit', async (event) => {

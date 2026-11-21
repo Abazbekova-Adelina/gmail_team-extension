@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 // Execute the chat controller with isolated DOM and transport boundaries.
-async function controller(key = 'a'.repeat(64), localKey = 'gmail:local') {
+async function controller(key = 'a'.repeat(64), localKey = 'gmail:local', reason = '') {
   const elements = new Map();
   function element() {
     return {
@@ -25,7 +25,7 @@ async function controller(key = 'a'.repeat(64), localKey = 'gmail:local') {
       return elements.get(selector);
     },
   };
-  const state = { rows: [], calls: [], reads: [] };
+  const state = { rows: [], calls: [], reads: [], posted: [] };
   const supabase = {
     removeChannel() {},
     channel() {
@@ -55,8 +55,8 @@ async function controller(key = 'a'.repeat(64), localKey = 'gmail:local') {
     },
   };
   const context = vm.createContext({
-    document, URL, location: { href: `https://example.com/chat.html?thread=${localKey}&message-key=${key}&match-state=failed` },
-    parent: { postMessage() {} }, window: { addEventListener() {} },
+    document, URL, location: { href: `https://example.com/chat.html?thread=${localKey}&message-key=${key}&match-state=failed&match-error=${encodeURIComponent(reason)}` },
+    parent: { postMessage(data, origin) { state.posted.push({ data, origin }); } }, window: { addEventListener() {} },
     ResizeObserver: class { observe() {} }, IntersectionObserver: class { observe() {} },
     setInterval() {}, supabase,
     crypto: webcrypto, localStorage: { setItem() {} },
@@ -138,4 +138,17 @@ test('missing email identity never creates a disconnected local discussion', asy
   assert.equal(app.state.calls.length, 0);
   assert.equal(app.elements.get('#conversation').hidden, true);
   assert.match(app.elements.get('#workspace-status').textContent, /Could not identify this email/);
+});
+
+test('failed identification shows its reason and allows retry without creating a disconnected chat', async () => {
+  const app = await controller('', 'gmail:local', 'Gmail returned HTTP 403');
+  app.activate(chat());
+  await app.refreshWorkspaces();
+  assert.match(app.elements.get('#workspace-status').textContent, /Gmail returned HTTP 403/);
+  const retry = app.elements.get('#retry-match');
+  assert.equal(retry.hidden, false);
+  retry.handlers.click();
+  assert.equal(app.state.posted.at(-1).data.type, 'threadly-retry-match');
+  assert.equal(app.state.posted.at(-1).origin, 'https://mail.google.com');
+  assert.equal(app.state.calls.length, 0);
 });

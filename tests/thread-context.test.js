@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { gmailThreadKey, validDiscussionCode } from '../thread-context.js';
-import { gmailMailboxPath, oldestLegacyMessageId } from '../email-identity.js';
+import { EmailIdentityError, gmailMailboxPath, gmailSessionKey, oldestMessageId } from '../email-identity.js';
 
 const threadA = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqRXv';
 const threadB = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqAAA';
@@ -28,6 +28,7 @@ const contentSource = (await readFile(new URL('../content.js', import.meta.url),
 function contentHarness() {
   let visible = true;
   let messageId = '1111111111111111';
+  const resources = [];
   const frames = [];
   const requests = [];
   const listeners = {};
@@ -48,9 +49,10 @@ function contentHarness() {
     after(frame) { this.nextElementSibling = frame; },
   };
   const context = {
-    gmailThreadKey, gmailMailboxPath, oldestLegacyMessageId, location, URL, AbortController,
-    resolveEmailIdentity(mailbox, id, { signal }) {
-      return new Promise((resolve, reject) => requests.push({ mailbox, id, signal, resolve, reject }));
+    EmailIdentityError, gmailThreadKey, gmailMailboxPath, gmailSessionKey, oldestMessageId, location, URL, AbortController,
+    performance: { getEntriesByType: () => resources },
+    requestEmailIdentity(mailbox, id, { signal, sessionKey }) {
+      return new Promise((resolve, reject) => requests.push({ mailbox, id, signal, sessionKey, resolve, reject }));
     },
     requestAnimationFrame(fn) { fn(); },
     MutationObserver: class { observe() {} },
@@ -59,7 +61,7 @@ function contentHarness() {
     document: {
       body: {}, querySelectorAll(selector) { return selector === '#gmail-team-chat' ? [] : [anchor]; },
       createElement() {
-        const frame = { src: '', remove() { anchor.nextElementSibling = null; } };
+        const frame = { src: '', contentWindow: {}, remove() { anchor.nextElementSibling = null; } };
         frames.push(frame);
         return frame;
       },
@@ -68,7 +70,7 @@ function contentHarness() {
   vm.createContext(context);
   vm.runInContext(contentSource, context);
   return {
-    frames, requests, location, anchor, listeners,
+    frames, requests, location, anchor, listeners, resources,
     mount() { vm.runInContext('mountChat()', context); },
     setVisible(value) { visible = value; },
     setMessage(value) { messageId = value; },
@@ -172,4 +174,47 @@ test('failure or unavailable message/account identity cannot create a local-only
   assert.equal(harness.params().get('match-state'), 'failed');
   assert.equal(harness.params().has('mailbox'), false);
   assert.equal(harness.requests.length, 1);
+});
+
+test('a late Gmail session key recovers identification without a page reload', async () => {
+  const harness = contentHarness();
+  harness.requests[0].reject(new Error('Session key required'));
+  await flush();
+  assert.equal(harness.params().get('match-state'), 'failed');
+  harness.resources.push({ name: 'https://mail.google.com/mail/u/2/?ik=abc123&view=att' });
+  harness.mount();
+  assert.equal(harness.requests[1].sessionKey, 'abc123');
+  harness.requests[1].resolve('a'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('match-state'), 'ready');
+  assert.equal(harness.params().has('ik'), false);
+  assert.equal(harness.params().has('sessionKey'), false);
+});
+
+test('a failed email match reports a safe reason and retries only from its own chat frame', async () => {
+  const harness = contentHarness();
+  harness.requests[0].reject(new EmailIdentityError('Gmail returned HTTP 403'));
+  await flush();
+  assert.equal(harness.params().get('match-error'), 'Gmail returned HTTP 403');
+  const retry = { data: { type: 'threadly-retry-match' }, source: {} };
+  harness.listeners.message(retry);
+  assert.equal(harness.requests.length, 1);
+  retry.source = harness.frames[0].contentWindow;
+  harness.listeners.message(retry);
+  assert.equal(harness.params().get('match-state'), 'pending');
+  assert.equal(harness.params().has('match-error'), false);
+  harness.listeners.message(retry);
+  assert.equal(harness.requests.length, 2);
+  harness.requests[1].resolve('b'.repeat(64));
+  await flush();
+  assert.equal(harness.params().get('match-state'), 'ready');
+  assert.equal(harness.params().get('message-key'), 'b'.repeat(64));
+});
+
+test('untrusted transport errors never leak request URLs or session keys into the frame', async () => {
+  const harness = contentHarness();
+  harness.requests[0].reject(new Error('https://mail.google.com/mail/u/2/?ik=SECRET'));
+  await flush();
+  assert.match(harness.params().get('match-error'), /request failed/);
+  assert.equal(harness.frames[0].src.includes('SECRET'), false);
 });
