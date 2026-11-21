@@ -33,7 +33,7 @@ For an existing installation, apply `supabase/migrations/20261121193000_add_auth
 
 Google account photos appear beside messages, with initials if a photo is missing or unavailable. The avatar migration also backfills existing messages from sign-in metadata.
 
-Your messages appear on the right. Consecutive messages from the same sender show their name and avatar once per day. Press Enter to send, or Shift+Enter for a new line; Enter selects a teammate while mention suggestions are open. The Send button sits inside the message box.
+Your messages appear on the right. Consecutive messages from the same sender show their name and avatar once per day. Press Enter to send, or Shift+Enter for a new line; Enter selects a teammate while mention suggestions are open. An SVG paper-plane Send button sits inside the compact message box, with larger 14px text, a single-line placeholder, and clearance above the chat’s bottom edge, without an extra composer background or top divider. Typed messages still support multiple lines and wrap between words. The email column keeps its natural height beside the chat.
 
 ## Match threads, share invites, and track replies
 
