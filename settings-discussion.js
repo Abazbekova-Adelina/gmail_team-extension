@@ -1,13 +1,13 @@
-import { rpc, scopeError } from './backend.js';
+import { rpc, scopeError, supabase } from './backend.js';
 import { validDiscussionCode } from './thread-context.js';
 import { discussionStorageKey } from './workspaces.js';
-import { messageMatchKey } from './gmail-metadata.js';
 
 const panel = document.querySelector('#thread-sharing');
 const status = document.querySelector('#discussion-status');
-const tabSelect = document.querySelector('#discussion-tab');
+const picker = document.querySelector('#discussion-threads');
 const controls = document.querySelector('#discussion-controls');
 const code = document.querySelector('#discussion-code');
+const share = document.querySelector('#discussion-share');
 const linkCode = document.querySelector('#link-code');
 
 let userId;
@@ -15,55 +15,94 @@ let workspaceId;
 let threads = [];
 let revision = 0;
 
+function askTab(tabId) {
+  return chrome.tabs.sendMessage(tabId, { type: 'get-gmail-thread' });
+}
+
 async function readThread(tabId) {
+  let context;
   try {
-    const context = await chrome.tabs.sendMessage(tabId, { type: 'get-gmail-thread' });
-    if (context?.gmailKey) return { ...context, tabId };
-  } catch {}
-  return null;
+    context = await askTab(tabId);
+  } catch {
+    try {
+      await chrome.scripting.insertCSS({ target: { tabId }, files: ['styles.css'] });
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+      context = await askTab(tabId);
+    } catch {
+      return null;
+    }
+  }
+  return context?.gmailKey ? { ...context, tabId } : null;
 }
 
 function selectedThread() {
-  return threads.find((thread) => String(thread.tabId) === tabSelect.value);
+  const value = picker.querySelector('input:checked')?.value;
+  return threads.find((thread) => String(thread.tabId) === value);
+}
+
+function threadOption(thread, checked) {
+  const option = document.createElement('label');
+  option.className = 'thread-option';
+  const input = document.createElement('input');
+  input.type = 'radio';
+  input.name = 'discussion-thread';
+  input.value = String(thread.tabId);
+  input.checked = checked;
+  const subject = document.createElement('strong');
+  subject.textContent = thread.subject;
+  option.append(input, subject);
+  if (thread.account) {
+    const account = document.createElement('small');
+    account.textContent = thread.account;
+    option.append(account);
+  }
+  return option;
 }
 
 async function loadDiscussion(thread, version) {
   controls.hidden = true;
   code.value = '';
   linkCode.value = '';
-  status.textContent = thread ? 'Loading discussion…' : 'Open a thread in Gmail and return here.';
   if (!thread) return;
+  status.textContent = 'Loading discussion…';
   try {
-    const args = { p_workspace_id: workspaceId, p_gmail_key: thread.gmailKey };
-    const key = await messageMatchKey(thread.apiThread);
+    const { data, error } = await supabase.from('discussion_bindings').select('discussion_id')
+      .eq('user_id', userId).eq('workspace_id', workspaceId).eq('gmail_key', thread.gmailKey).maybeSingle();
+    if (error) throw error;
     if (version !== revision) return;
-    const id = key ? await rpc('match_thread_discussion', { ...args, p_message_key: key })
-      : await rpc('open_thread_discussion', args);
-    if (version !== revision) return;
-    code.value = id;
-    status.textContent = '';
+    code.value = data?.discussion_id ?? '';
+    share.hidden = !data;
+    status.textContent = data ? '' : "This email is not connected to this workspace yet. Press Connect Threadly under the email, or paste a teammate's code.";
     controls.hidden = false;
   } catch (error) {
     if (version === revision) status.textContent = scopeError(error);
   }
 }
 
+function emptyMessage(gmailTabs) {
+  if (!gmailTabs) return 'Open Gmail in this browser, open an email, then press Check again.';
+  return 'Gmail is open, but no email is. Open the email you want to discuss, then press Check again.';
+}
+
 async function refreshThreads() {
   if (panel.hidden || !panel.open) return;
   const version = ++revision;
+  const previous = selectedThread()?.gmailKey;
   controls.hidden = true;
-  status.textContent = 'Finding open Gmail threads…';
+  status.textContent = 'Looking for open emails…';
   try {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = await chrome.tabs.query({ url: 'https://mail.google.com/*' });
     tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
     const found = await Promise.all(tabs.map((tab) => readThread(tab.id)));
     if (version !== revision) return;
-    threads = found.filter(Boolean);
-    tabSelect.replaceChildren(...threads.map((thread) => new Option(thread.title || 'Gmail thread', thread.tabId)));
-    tabSelect.disabled = !threads.length;
-    await loadDiscussion(selectedThread(), version);
+    const seen = new Set();
+    threads = found.filter((thread) => thread && !seen.has(thread.gmailKey) && seen.add(thread.gmailKey));
+    const selected = threads.find((thread) => thread.gmailKey === previous) ?? threads[0];
+    picker.replaceChildren(...threads.map((thread) => threadOption(thread, thread === selected)));
+    status.textContent = threads.length ? '' : emptyMessage(tabs.length);
+    await loadDiscussion(selected, version);
   } catch {
-    if (version === revision) status.textContent = 'Could not find Gmail threads. Try opening this section again.';
+    if (version === revision) status.textContent = 'Could not read your Gmail tabs. Press Check again.';
   }
 }
 
@@ -79,7 +118,8 @@ export function showDiscussionSettings(accountId, teamId) {
 }
 
 panel.addEventListener('toggle', () => void refreshThreads());
-tabSelect.addEventListener('change', () => void loadDiscussion(selectedThread(), ++revision));
+picker.addEventListener('change', () => void loadDiscussion(selectedThread(), ++revision));
+document.querySelector('#refresh-discussion-threads').addEventListener('click', () => void refreshThreads());
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void refreshThreads();
 });

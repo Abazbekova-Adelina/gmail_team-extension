@@ -40,7 +40,7 @@ test('Gmail navigation clears old frame history and drafts and hides chat in inb
     window: {addEventListener(){}},
     chrome: {runtime:{getURL:(path) => `chrome-extension://test/${path}`, onMessage:{addListener(){}}}},
     document: {
-      body:{}, querySelectorAll() {return [anchor];},
+      body:{}, querySelectorAll(selector) {return selector === '#gmail-team-chat' ? [] : [anchor];},
       createElement() {
         const frame = {src:'', remove(){anchor.nextElementSibling=null;}};
         frames.push(frame);

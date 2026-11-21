@@ -28,7 +28,7 @@ if (projectUrl) {
 const manifest = JSON.parse(await readFile('manifest.json', 'utf8'));
 if (supabaseUrl) {
   const url = new URL(supabaseUrl);
-  manifest.host_permissions = [`${url.protocol}//${url.hostname}/*`];
+  manifest.host_permissions = [...(manifest.host_permissions ?? []), `${url.protocol}//${url.hostname}/*`];
 }
 
 const gmailClientId = process.env.GMAIL_OAUTH_CLIENT_ID?.trim();

@@ -26,6 +26,12 @@ function threadContext(anchor) {
   };
 }
 
+function threadLabel() {
+  const subject = document.querySelector('[role="main"] h2.hP')?.textContent.trim();
+  const [, titleSubject, account] = /^(.*) - ([^\s@]+@[^\s]+) - Gmail$/.exec(document.title) ?? [];
+  return { subject: subject || titleSubject || 'Untitled email', account: account ?? '' };
+}
+
 function mountChat() {
   scheduled = false;
   const anchor = findAnchor();
@@ -64,9 +70,17 @@ new MutationObserver(scheduleMount).observe(document.body, {
   attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
 });
 window.addEventListener('hashchange', scheduleMount);
+window.addEventListener('message', (event) => {
+  if (!frame || event.source !== frame.contentWindow || event.data?.type !== 'threadly-height') return;
+  const height = Number(event.data.height);
+  if (Number.isFinite(height)) frame.style.height = `${Math.min(Math.max(Math.ceil(height), 60), 560)}px`;
+});
+// After an extension reload, the popup injects a fresh copy of this script.
+// The previous copy loses its runtime, so its frame has to go.
+for (const stale of document.querySelectorAll('#gmail-team-chat')) stale.remove();
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'get-gmail-thread' || sender.id !== chrome.runtime.id) return;
   const context = threadContext(findAnchor());
-  respond(context.gmailKey ? { ...context, title: document.title } : null);
+  respond(context.gmailKey ? { ...context, ...threadLabel() } : null);
 });
 scheduleMount();

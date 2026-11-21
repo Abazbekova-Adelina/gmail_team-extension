@@ -2,7 +2,6 @@ import { watchAccount } from './account.js';
 import { rpc, scopeError, supabase } from './backend.js';
 import { discussionStorageKey, fetchWorkspaces, preferredWorkspace, workspaceStorageKey } from './workspaces.js';
 import { avatarElement, profileDetails } from './avatars.js';
-import { validDiscussionCode } from './thread-context.js';
 import { messageMatchKey } from './gmail-metadata.js';
 import { encodeMentions, mentionToken } from './mentions.js';
 import { mountMentions } from './mention-composer.js';
@@ -25,19 +24,34 @@ const chatStatus = document.querySelector('#chat-status');
 let activeChat;
 let currentUser;
 let selectedWorkspace = '';
-let selectionVersion = 0;
 let workspaceRefreshVersion = 0;
 const context = new URL(location.href).searchParams;
 const gmailKey = context.get('thread');
 const apiThread = context.get('api-thread');
 const mailbox = context.get('mailbox');
 const workspaceStatus = document.querySelector('#workspace-status');
+const page = document.querySelector('.chat');
+const connectForm = document.querySelector('#connect-form');
+const connectSelect = document.querySelector('#connect-workspace');
+const connectButton = document.querySelector('#connect-button');
+const connectedSelect = document.querySelector('#connected-workspace');
+const chatDescription = document.querySelector('#chat-description');
+const CHAT_HEIGHT = 560;
+let reportedHeight = 0;
 let historyVisible = false;
 let matchKey;
 const refreshMentionConfirmation = mountMentions(messageInput, () => activeChat);
 
+function reportHeight() {
+  const compact = conversation.hidden;
+  document.body.classList.toggle('compact', compact);
+  const height = compact ? Math.ceil(page.getBoundingClientRect().height) : CHAT_HEIGHT;
+  if (height === reportedHeight) return;
+  reportedHeight = height;
+  parent.postMessage({ type: 'threadly-height', height }, 'https://mail.google.com');
+}
+
 function stopChat() {
-  selectionVersion++;
   const previous = activeChat;
   activeChat = undefined;
   if (previous?.channel) void supabase.removeChannel(previous.channel);
@@ -47,7 +61,11 @@ function stopChat() {
   messageInput.readOnly = false;
   sendButton.disabled = false;
   messageInput.placeholder = 'Write a message…';
+  connectForm.hidden = true;
+  connectedSelect.hidden = true;
+  chatDescription.textContent = 'Discuss this email privately with your team.';
   refreshMentionConfirmation();
+  reportHeight();
 }
 function messageElement(message, chat) {
   const item = document.createElement('li');
@@ -315,82 +333,157 @@ function showAccount(user) {
   if (user) void refreshWorkspaces();
 }
 
-async function openDiscussion(workspaceId, linkedId) {
+function validThreadKey() {
+  return Boolean(gmailKey?.startsWith('gmail:') && gmailKey.length <= 240);
+}
+
+function threadMatchKey() {
+  matchKey ??= messageMatchKey(apiThread);
+  return matchKey;
+}
+
+function openDiscussion(workspaceId, discussionId) {
   stopChat();
-  const version = selectionVersion;
   const user = currentUser;
-  if (!user || !workspaceId) return;
-  workspaceStatus.textContent = 'Opening this thread’s discussion…';
-  if (!gmailKey || !gmailKey.startsWith('gmail:') || gmailKey.length > 240) {
-    workspaceStatus.textContent = 'Open an email thread in Gmail to start a discussion.';
-    return;
-  }
+  if (!user) return;
+  const chat = {
+    userId: user.id, profile: profileDetails(user), workspaceId, discussionId,
+    messages: new Map(), olderThan: null, refresh: null, loaded: false,
+    members: new Map(), readThrough: 0, reading: false,
+    reactions: new Map(), reactionRefresh: null, pendingReactions: new Set(),
+    loadingEarlier: false, historyError: '', connection: 'Connecting…', sendError: '', draft: null,
+  };
+  activeChat = chat;
+  if (mailbox) localStorage.setItem(`mailbox:${user.id}:${gmailKey}`, mailbox);
+  conversation.hidden = false;
+  workspaceStatus.textContent = '';
+  reportHeight();
+  renderConnection(chat);
+  void refreshHistory(chat);
+  void loadMembers(chat);
+  chat.channel = supabase.channel(`discussion-${crypto.randomUUID()}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'team_messages',
+      filter: `discussion_id=eq.${discussionId}`,
+    }, ({new: message}) => {
+      if (message.workspace_id === workspaceId && message.discussion_id === discussionId) {
+        receiveMessage(chat, message.id, message);
+      }
+    })
+    .subscribe((status) => {
+      if (chat !== activeChat) return;
+      chat.connection = status === 'SUBSCRIBED' ? 'Live · Workspace members only' : 'Updates paused. Reconnecting…';
+      renderConnection(chat);
+      if (status === 'SUBSCRIBED') void refreshHistory(chat);
+    });
+}
+
+async function sharedDiscussions() {
+  const key = await threadMatchKey();
+  if (!key) return { key, rows: [] };
   try {
-    matchKey ??= messageMatchKey(apiThread);
-    const key = linkedId ? null : await matchKey;
-    if (version !== selectionVersion || currentUser?.id !== user.id) return;
-    const args = { p_workspace_id: workspaceId, p_gmail_key: gmailKey };
-    const discussionId = linkedId || (key
-      ? await rpc('match_thread_discussion', { ...args, p_message_key: key })
-      : await rpc('open_thread_discussion', args));
-    if (version !== selectionVersion || currentUser?.id !== user.id) return;
-    const chat = {
-      userId: user.id, profile: profileDetails(user), workspaceId, discussionId,
-      messages: new Map(), olderThan: null, refresh: null, loaded: false,
-      members: new Map(), readThrough: 0, reading: false,
-      reactions: new Map(), reactionRefresh: null, pendingReactions: new Set(),
-      loadingEarlier: false, historyError: '', connection: 'Connecting…', sendError: '', draft: null,
-    };
-    activeChat = chat;
-    if (mailbox) localStorage.setItem(`mailbox:${user.id}:${gmailKey}`, mailbox);
-    conversation.hidden = false;
-    workspaceStatus.textContent = '';
-    renderConnection(chat);
-    void refreshHistory(chat);
-    void loadMembers(chat);
-    chat.channel = supabase.channel(`discussion-${crypto.randomUUID()}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'team_messages',
-        filter: `discussion_id=eq.${discussionId}`,
-      }, ({new: message}) => {
-        if (message.workspace_id === workspaceId && message.discussion_id === discussionId) {
-          receiveMessage(chat, message.id, message);
-        }
-      })
-      .subscribe((status) => {
-        if (chat !== activeChat) return;
-        chat.connection = status === 'SUBSCRIBED' ? 'Live · Workspace members only' : 'Updates paused. Reconnecting…';
-        renderConnection(chat);
-        if (status === 'SUBSCRIBED') void refreshHistory(chat);
-      });
+    return { key, rows: await rpc('shared_thread_discussions', { p_message_key: key }) };
   } catch (error) {
-    if (version === selectionVersion) workspaceStatus.textContent = scopeError(error);
+    if (error?.code === 'PGRST202') return { key, rows: [] };
+    throw error;
   }
+}
+
+// Discussions exist only for emails someone connected with the button. A
+// teammate's connection is found through the shared Message-ID key and joined.
+async function connectedDiscussions(userId, teams) {
+  const member = new Set(teams.map((team) => team.id));
+  const { data, error } = await supabase.from('discussion_bindings').select('workspace_id,discussion_id')
+    .eq('user_id', userId).eq('gmail_key', gmailKey);
+  if (error) throw error;
+  const connected = new Map(data.filter((row) => member.has(row.workspace_id))
+    .map((row) => [row.workspace_id, row.discussion_id]));
+  const { key, rows } = await sharedDiscussions();
+  for (const row of rows) {
+    if (connected.has(row.workspace_id) || !member.has(row.workspace_id)) continue;
+    connected.set(row.workspace_id, await rpc('match_thread_discussion', {
+      p_workspace_id: row.workspace_id, p_gmail_key: gmailKey, p_message_key: key,
+    }));
+  }
+  return connected;
+}
+
+function showConnect(teams, userId) {
+  if (activeChat || connectForm.hidden) stopChat();
+  const current = connectSelect.value;
+  connectSelect.replaceChildren(...teams.map((team) => new Option(team.name, team.id)));
+  connectSelect.value = teams.some((team) => team.id === current) ? current : preferredWorkspace(teams, userId);
+  if (!connectButton.disabled) workspaceStatus.textContent = '';
+  connectForm.hidden = false;
+  reportHeight();
+}
+
+function showConnected(connected, teams, workspaceId) {
+  const names = new Map(teams.map((team) => [team.id, team.name]));
+  const discussionId = connected.get(workspaceId);
+  if (activeChat?.workspaceId !== workspaceId || activeChat.discussionId !== discussionId) {
+    openDiscussion(workspaceId, discussionId);
+  }
+  selectedWorkspace = workspaceId;
+  connectedSelect.replaceChildren(...[...connected.keys()].map((id) => new Option(names.get(id), id)));
+  connectedSelect.value = workspaceId;
+  connectedSelect.hidden = connected.size < 2;
+  chatDescription.textContent = `Private discussion · ${names.get(workspaceId)}`;
 }
 
 async function refreshWorkspaces() {
   if (!currentUser) return;
   const userId = currentUser.id;
   const version = ++workspaceRefreshVersion;
+  if (!validThreadKey()) {
+    stopChat();
+    workspaceStatus.textContent = 'Open an email thread in Gmail to start a discussion.';
+    return;
+  }
   try {
     const teams = await fetchWorkspaces();
     if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
-    const next = preferredWorkspace(teams, userId);
-    const team = teams.find((item) => item.id === next);
-    if (!team) {
+    if (!teams.length) {
       stopChat();
       selectedWorkspace = '';
-      workspaceStatus.textContent = 'Create a workspace or accept an invitation in Workspace settings.';
+      workspaceStatus.textContent = 'Create a workspace or accept an invitation in Threadly settings.';
       return;
     }
-    if (next !== selectedWorkspace || !activeChat) {
-      selectedWorkspace = next;
-      await openDiscussion(next);
+    const connected = await connectedDiscussions(userId, teams);
+    if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
+    if (!connected.size) {
+      selectedWorkspace = '';
+      showConnect(teams, userId);
+      return;
     }
+    const preferred = preferredWorkspace(teams, userId);
+    const next = [selectedWorkspace, preferred].find((id) => connected.has(id)) ?? connected.keys().next().value;
+    showConnected(connected, teams, next);
   } catch (error) {
     if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
     stopChat();
     workspaceStatus.textContent = scopeError(error);
+  }
+}
+
+async function connectThread(workspaceId) {
+  const user = currentUser;
+  if (!user || !workspaceId || !validThreadKey() || connectButton.disabled) return;
+  connectButton.disabled = true;
+  workspaceStatus.textContent = 'Connecting this email…';
+  try {
+    const key = await threadMatchKey();
+    const args = { p_workspace_id: workspaceId, p_gmail_key: gmailKey };
+    await (key ? rpc('match_thread_discussion', { ...args, p_message_key: key })
+      : rpc('open_thread_discussion', args));
+    if (currentUser?.id !== user.id) return;
+    selectedWorkspace = workspaceId;
+    workspaceStatus.textContent = '';
+    await refreshWorkspaces();
+  } catch (error) {
+    if (currentUser?.id === user.id) workspaceStatus.textContent = scopeError(error);
+  } finally {
+    connectButton.disabled = false;
   }
 }
 
@@ -411,6 +504,15 @@ async function sendMessage(chat, draft) {
 }
 
 watchAccount(showAccount);
+new ResizeObserver(reportHeight).observe(page);
+connectForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void connectThread(connectSelect.value);
+});
+connectedSelect.addEventListener('change', () => {
+  selectedWorkspace = connectedSelect.value;
+  void refreshWorkspaces();
+});
 if (!supabase) workspaceStatus.textContent = 'This build needs a Supabase project to sign in.';
 loadEarlierButton.addEventListener('click', () => void loadEarlier(activeChat));
 retryHistoryButton.addEventListener('click', () => {
@@ -488,10 +590,10 @@ window.addEventListener('storage', (event) => {
     void refreshWorkspaces();
   }
   if (event.key === discussionStorageKey(currentUser.id) && event.newValue) {
-    const { workspaceId, threadKey, discussionId } = JSON.parse(event.newValue);
-    if (workspaceId === selectedWorkspace && threadKey === gmailKey
-      && validDiscussionCode(discussionId) && activeChat?.discussionId !== discussionId) {
-      void openDiscussion(workspaceId, discussionId);
+    const { workspaceId, threadKey } = JSON.parse(event.newValue);
+    if (threadKey === gmailKey) {
+      selectedWorkspace = workspaceId;
+      void refreshWorkspaces();
     }
   }
 });

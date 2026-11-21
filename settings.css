@@ -68,7 +68,21 @@
 #featured-invite { background: var(--subtle); }
 #featured-invite li { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
 
-#thread-sharing label { font-size: 13px; }
-#thread-sharing p { font-size: 13px; color: var(--secondary); }
-#discussion-tab { display: block; width: 100%; margin: 4px 0 8px; }
-#discussion-code { font: 12px monospace; }
+.discussion-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--secondary); }
+.thread-picker { display: grid; gap: 6px; margin: 6px 0 0; }
+.thread-option { position: relative; display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.thread-option:hover { background: var(--subtle); }
+.thread-option:has(input:checked) { border-color: var(--accent); background: var(--sent); }
+.thread-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thread-option input { position: absolute; opacity: 0; pointer-events: none; }
+.thread-option strong { display: block; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.thread-option small { display: block; overflow: hidden; color: var(--secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.discussion-status { margin: 8px 0 0; font-size: 13px; color: var(--secondary); }
+.discussion-status:empty { display: none; }
+.discussion-controls { display: grid; gap: 6px; margin-top: 12px; }
+.discussion-controls label { display: block; margin-top: 6px; font-size: 13px; font-weight: 600; }
+.discussion-controls .settings-hint { margin: 2px 0 0; }
+.code-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.code-row input { flex: 1; }
+.code-row .primary-button { padding: 7px 14px; }
+#discussion-code { font: 12px monospace; color: var(--secondary); }

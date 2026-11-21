@@ -35,6 +35,7 @@ test('private workspace and per-thread database authorization', async (t) => {
   await db.exec(await readFile(new URL('../supabase/migrations/20261121203000_private_workspaces_and_threads.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261122200000_thread_matching_and_activity.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261122210000_message_reactions.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261123090000_shared_thread_lookup.sql', import.meta.url), 'utf8'));
   const as = async (id) => {
     await db.exec('reset role');
     await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [id]);
@@ -78,6 +79,8 @@ test('private workspace and per-thread database authorization', async (t) => {
   const otherThread = await call('open_thread_discussion',[otherTeam,'gmail:thread-one']);
   assert.equal(await call('match_thread_discussion',[otherTeam,'gmail:thread-one',messageKey]), otherThread);
   assert.notEqual(otherThread, first);
+  const outsiderShared = (await db.query('select * from public.shared_thread_discussions($1)', [messageKey])).rows;
+  assert.deepEqual(outsiderShared.map((row) => row.discussion_id), [otherThread]);
   assert.equal(await scalar('select count(*)::int from public.chat_activity()'), 0);
   await assert.rejects(() => call('set_message_reaction',[mention,'❤️']));
   await post(otherTeam,otherThread,'other workspace');
@@ -89,6 +92,9 @@ test('private workspace and per-thread database authorization', async (t) => {
   assert.equal(invites.length,1);
   assert.equal(invites[0].workspace_name,'Design');
   assert.equal(await call('accept_workspace_invitation',[invite]),team);
+  const shared = (await db.query('select * from public.shared_thread_discussions($1)', [messageKey])).rows;
+  assert.deepEqual(shared.map((row) => [row.workspace_id, row.discussion_id]), [[team, first]]);
+  assert.equal(await scalar('select count(*)::int from public.shared_thread_discussions($1)', ['not-a-key']), 0);
   assert.equal((await call('set_message_reaction',[mention,'❤️'])).emoji, '❤️');
   assert.equal((await call('set_message_reaction',[mention,'👍'])).emoji, '👍');
   await assert.rejects(() => call('set_message_reaction',[mention,'invalid']));
