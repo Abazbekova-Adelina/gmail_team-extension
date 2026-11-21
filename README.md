@@ -14,6 +14,8 @@ The Chrome extension adds private team discussions below Gmail threads. Only mem
 
 Run `npm ci` and `npm run build` with Node.js 22 or newer. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select `dist`. Click the extension icon and sign in with Google. Open or refresh Gmail and open a thread.
 
+Authentication is stored in `chrome.storage.local`, shared between settings and Gmail's embedded chat. Open panels update on sign-in, token refresh, and sign-out without reloading Gmail. After updating from an older build, reload the extension in `chrome://extensions`, refresh Gmail, and sign in once again; browser-local sessions are not reused.
+
 ## Private teams and thread discussions
 
 For an existing installation, apply `supabase/migrations/20261121193000_add_author_avatars.sql` if needed, then `supabase/migrations/20261121203000_private_workspaces_and_threads.sql`. Rebuild and reload the extension after applying the migrations. The new frontend refuses to open the old global chat when the private-workspace schema is missing. Privacy restrictions take effect on the server only when the migration is applied.
@@ -44,3 +46,5 @@ Run `npm test`, `npm run build`, and `npm run build:site`. Database tests use a 
 ## Deploy the install page to Vercel
 
 The Vercel build runs `npm run build:site` and serves `site-dist`. A configured build includes the downloadable Chrome extension. Add the Supabase variables to the Vercel project before deploying the download.
+
+Google sign-in runs in an extension-owned window. The extension captures the returned Supabase PKCE code and closes the window before the Site URL can display the install page, including when Supabase falls back to its configured Site URL. This does not require a website deployment. Reload the rebuilt extension to apply sign-in changes.
