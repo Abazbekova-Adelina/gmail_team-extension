@@ -1,0 +1,25 @@
+{
+  "brand": "Threadly",
+  "stage": "Exploration; no app assets replaced",
+  "generator": "Built-in imagegen",
+  "concepts": [
+    {
+      "id": "loop",
+      "name": "The little knot",
+      "prompt_summary": "A broad apricot ribbon folded into a compact t-like knot, paired with a humanist sans-serif Threadly wordmark. Flat cream identity board with monochrome and reversed symbols.",
+      "colors": {"aubergine": "#39243E", "apricot": "#F6A77A", "cream": "#FFF7ED"}
+    },
+    {
+      "id": "margin",
+      "name": "In the margins",
+      "prompt_summary": "Two offset bracket-like strokes interlock into a compact conversation monogram, with a citron connection point and a precise sans-serif Threadly wordmark. Flat paper identity board with monochrome and reversed symbols.",
+      "colors": {"cobalt": "#304FE8", "citron": "#D8F36A", "ink": "#202525", "paper": "#F6F7F2"}
+    },
+    {
+      "id": "weave",
+      "name": "Woven together",
+      "prompt_summary": "Two broad rounded strips woven once into a soft T with a negative-space crossing, paired with a friendly contemporary serif Threadly wordmark. Flat oat identity board with monochrome and reversed symbols.",
+      "colors": {"pine": "#174B3C", "rose": "#EBA7AF", "oat": "#F5F0E6"}
+    }
+  ]
+}
