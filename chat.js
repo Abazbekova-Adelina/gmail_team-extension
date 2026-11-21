@@ -6,6 +6,7 @@ import { encodeMentions, mentionToken } from './mentions.js';
 import { mountMentions } from './mention-composer.js';
 import { dayLabel, localDay, timeLabel } from './chat-dates.js';
 import { reactionControls } from './reactions.js';
+import { mountAssistant } from './assistant.js';
 
 const PAGE_SIZE = 100;
 // Older databases can still load history before the avatar migration is applied.
@@ -37,6 +38,7 @@ const CHAT_HEIGHT = 560;
 let reportedHeight = 0;
 let historyVisible = false;
 const refreshMentionConfirmation = mountMentions(messageInput, () => activeChat);
+const assistant = mountAssistant({supabase, getChat: () => activeChat, gmailKey});
 
 function reportHeight() {
   const compact = conversation.hidden;
@@ -48,6 +50,7 @@ function reportHeight() {
 }
 
 function stopChat() {
+  assistant.reset();
   const previous = activeChat;
   activeChat = undefined;
   if (previous?.channel) void supabase.removeChannel(previous.channel);
@@ -129,6 +132,7 @@ function messageRows(messages, chat) {
 }
 
 function renderHistory(chat, { prepend = false } = {}) {
+  assistant.update(chat);
   const previousHeight = messageScroll.scrollHeight;
   const previousTop = messageScroll.scrollTop;
   const atBottom = previousHeight - previousTop - messageScroll.clientHeight < 24;

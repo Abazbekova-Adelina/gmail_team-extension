@@ -50,6 +50,7 @@ function contentHarness() {
     after(frame) { this.nextElementSibling = frame; },
   };
   const context = {
+    visibleEmailContext:()=>({text:'Visible email',truncated:false}),
     EmailIdentityError, gmailThreadKey, gmailMailboxPath, gmailSessionKey, oldestMessageId, location, URL, AbortController,
     performance: { getEntriesByType: () => resources },
     requestEmailIdentity(mailbox, id, { signal, sessionKey }) {
@@ -60,9 +61,10 @@ function contentHarness() {
     window: { addEventListener(type, handler) { listeners[type] = handler; } },
     chrome: { runtime: { getURL: (path) => `chrome-extension://test/${path}` } },
     document: {
-      body: {}, querySelectorAll(selector) { return selector === '#gmail-team-chat' ? [] : [anchor]; },
+      body: {}, querySelector() {return null;}, querySelectorAll(selector) { return selector === '#gmail-team-chat' ? [] : [anchor]; },
       createElement() {
-        const frame = { src: '', contentWindow: {}, remove() { anchor.nextElementSibling = null; } };
+        const frame = { src: '', replies:[], remove() { anchor.nextElementSibling = null; } };
+        frame.contentWindow = {postMessage(data,origin){frame.replies.push({data,origin});}};
         frames.push(frame);
         return frame;
       },
@@ -218,4 +220,23 @@ test('untrusted transport errors never leak request URLs or session keys into th
   await flush();
   assert.match(harness.params().get('match-error'), /request failed/);
   assert.equal(harness.frames[0].src.includes('SECRET'), false);
+});
+
+
+test('email context bridge accepts only its own extension frame for the current thread', async () => {
+  const h=contentHarness();h.requests[0].resolve('a'.repeat(64));await flush();
+  const frame=h.frames[0];
+  const data={type:'threadly-email-context-request',requestId:'one',threadKey:`gmail:${threadA}`};
+  const send=(source,origin,body=data)=>h.listeners.message({source,origin,data:body});
+  send({},'chrome-extension://test');
+  send(frame.contentWindow,'https://evil.example');
+  send(frame.contentWindow,'chrome-extension://test',{...data,threadKey:`gmail:${threadB}`});
+  assert.equal(frame.replies.length,0);
+  send(frame.contentWindow,'chrome-extension://test');
+  assert.equal(frame.replies.length,1);
+  assert.equal(frame.replies[0].data.text,'Visible email');
+  assert.equal(frame.replies[0].origin,'chrome-extension://test');
+  h.location.hash=`#inbox/${threadB}`;
+  send(frame.contentWindow,'chrome-extension://test');
+  assert.equal(frame.replies.length,1);
 });

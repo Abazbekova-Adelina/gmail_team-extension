@@ -36,6 +36,7 @@ test('private workspace and per-thread database authorization', async (t) => {
   await db.exec(await readFile(new URL('../supabase/migrations/20261122200000_thread_matching_and_activity.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261122210000_message_reactions.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261123090000_shared_thread_lookup.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261123110000_assistant_usage.sql', import.meta.url), 'utf8'));
   const as = async (id) => {
     await db.exec('reset role');
     await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [id]);
@@ -55,6 +56,13 @@ test('private workspace and per-thread database authorization', async (t) => {
   const first = await call('open_thread_discussion',[team,'gmail:thread-one']);
   const second = await call('open_thread_discussion',[team,'gmail:thread-two']);
   assert.notEqual(first,second);
+  for (let i=0; i<20; i++) assert.equal(await call('claim_assistant_request',[first]),true);
+  assert.equal(await call('claim_assistant_request',[second]),false);
+  await assert.rejects(()=>db.query('select * from public.assistant_usage'));
+  await db.exec('reset role');
+  await db.query("update public.assistant_usage set window_start=now()-interval '2 hours' where user_id=$1",[owner]);
+  await as(owner);
+  assert.equal(await call('claim_assistant_request',[first]),true);
   assert.equal(await call('open_thread_discussion',[team,'gmail:thread-one']),first);
   await post(team,first);
   await post(team,second,'second thread');
@@ -67,6 +75,7 @@ test('private workspace and per-thread database authorization', async (t) => {
   await assert.rejects(() => db.query('insert into public.workspace_members values ($1,$2,$3)',[team,outsider,'Intruder']));
 
   await as(outsider);
+  await assert.rejects(()=>call('claim_assistant_request',[first]));
   assert.equal(await scalar('select count(*)::int from public.workspaces'),0);
   assert.equal(await scalar('select count(*)::int from public.team_messages'),0);
   assert.equal(await scalar('select count(*)::int from public.workspace_members'),0);
@@ -265,6 +274,7 @@ test('private workspace and per-thread database authorization', async (t) => {
   await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:automatic-member', automaticKey]));
   await db.exec('reset role; set role anon');
   await assert.rejects(() => call('create_workspace',['Anonymous']));
+  await assert.rejects(()=>call('claim_assistant_request',[first]));
   await assert.rejects(() => call('automatic_thread_discussion', [team, 'gmail:automatic-owner', automaticKey]));
   await assert.rejects(() => db.query('select * from public.team_messages'));
   await assert.rejects(() => db.query('select * from public.chat_activity()'));

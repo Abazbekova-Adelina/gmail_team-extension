@@ -65,6 +65,7 @@ async function controller(key = 'a'.repeat(64), localKey = 'gmail:local', reason
     fetchWorkspaces: async () => [{ id: 'team', name: 'Team' }],
     preferredWorkspace: () => 'team',
     watchAccount() {}, mountMentions: () => () => {},
+    mountAssistant: () => ({reset() {}, update() {}}),
     rpc: async (name, args) => {
       state.calls.push({ name, args });
       return 'shared';
