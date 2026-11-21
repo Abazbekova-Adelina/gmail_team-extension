@@ -33,6 +33,8 @@ For an existing installation, apply `supabase/migrations/20261121193000_add_auth
 
 Google account photos appear beside messages, with initials if a photo is missing or unavailable. The avatar migration also backfills existing messages from sign-in metadata.
 
+Your messages appear on the right. Consecutive messages from the same sender show their name and avatar once per day. Press Enter to send, or Shift+Enter for a new line; Enter selects a teammate while mention suggestions are open. The Send button sits inside the message box.
+
 ## Match threads, share invites, and track replies
 
 Apply all SQL migrations in filename order, including `supabase/migrations/20261123100000_automatic_thread_discussion.sql`, before loading the updated extension. This is an administrator deployment step, not per-user configuration. The automatic discussion RPC is required; older installations never fall back to creating disconnected per-user chats. Reload the extension and Gmail after deployment; old builds use retired manual-link RPCs.
@@ -46,7 +48,7 @@ Existing account-specific discussions are reconciled automatically when the emai
 
 Supabase Realtime delivers new messages in the shared discussion. Reconnecting, returning to the tab, and visible-chat checks every eight seconds recover missed messages without dropping loaded history.
 
-Apply `supabase/migrations/20261122210000_message_reactions.sql` to enable reactions. Click **Add reaction** on a message to pick an emoji. Click your reaction again to remove it. Changes from teammates appear when the chat refreshes.
+Apply `supabase/migrations/20261122210000_message_reactions.sql` to enable reactions. Click **Add reaction** at the bottom right of a message to pick an emoji. Click your reaction again to remove it. Changes from teammates appear when the chat refreshes.
 
 The privacy migration preserves old global messages with no workspace/thread assignment, but hides them from all normal app accounts. It does not guess which private team should inherit those messages. A database administrator can review them separately.
 

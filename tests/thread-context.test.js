@@ -45,6 +45,7 @@ function contentHarness() {
     querySelectorAll() { return [message]; },
     contains() { return false; },
     matches() { return false; },
+    closest() { return null; },
     checkVisibility() { return visible; },
     after(frame) { this.nextElementSibling = frame; },
   };

@@ -172,6 +172,20 @@ test('original and reply-only copies share the References root hash', async (t) 
   assert.deepEqual(keys, Array(3).fill(hash('<Root@example.com>')));
 });
 
+test('current Gmail IDs resolve through permmsgid to the same shared identity', async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    requests.push(new URL(url));
+    return streamed(['Message-ID: <Root@example.com>\r\n\r\n']).response;
+  });
+  const expected = await resolveEmailIdentity('/mail/u/0/', legacyId);
+  for (const id of ['msg-f:1882481198916350244', '#msg-a:123456789']) {
+    assert.equal(await resolveEmailIdentity('/mail/u/2/', id), expected);
+    assert.equal(requests.at(-1).searchParams.get('permmsgid'), id.replace(/^#/, ''));
+    assert.equal(requests.at(-1).searchParams.has('th'), false);
+  }
+});
+
 test('invalid context never fetches; network, malformed headers and abort never fabricate a key', async (t) => {
   const fetchMock = t.mock.method(globalThis, 'fetch', async () => { throw new Error('offline'); });
   await assert.rejects(resolveEmailIdentity('/mail/u/0/', 'invalid'));

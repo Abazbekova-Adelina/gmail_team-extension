@@ -63,7 +63,7 @@ function stopChat() {
   refreshMentionConfirmation();
   reportHeight();
 }
-function messageElement(message, chat) {
+function messageElement(message, chat, continuation) {
   const item = document.createElement('li');
   const meta = document.createElement('div');
   const author = document.createElement('strong');
@@ -74,7 +74,7 @@ function messageElement(message, chat) {
   const ownMessage = message.author_id === chat.userId;
   const name = ownMessage ? chat.profile.name : message.author_name;
 
-  item.className = 'message';
+  item.className = `message${ownMessage ? ' message-own' : ''}${continuation ? ' message-continuation' : ''}`;
   content.className = 'message-content';
   meta.className = 'message-meta';
   author.textContent = ownMessage ? 'You' : name;
@@ -106,6 +106,7 @@ function messageElement(message, chat) {
 function messageRows(messages, chat) {
   const rows = [];
   let previousDay;
+  let previousAuthor;
   for (const message of messages) {
     const date = new Date(message.created_at);
     const day = localDay(date);
@@ -118,8 +119,11 @@ function messageRows(messages, chat) {
       separator.append(label);
       rows.push(separator);
       previousDay = day;
+      previousAuthor = undefined;
     }
-    rows.push(messageElement(message, chat));
+    const continuation = day === previousDay && message.author_id === previousAuthor;
+    rows.push(messageElement(message, chat, continuation));
+    previousAuthor = message.author_id;
   }
   return rows;
 }
@@ -399,7 +403,7 @@ function openDiscussion(workspaceId, discussionId) {
     })
     .subscribe((status) => {
       if (chat !== activeChat) return;
-      chat.connection = status === 'SUBSCRIBED' ? 'Live · Workspace members only' : 'Updates paused. Reconnecting…';
+      chat.connection = status === 'SUBSCRIBED' ? '' : 'Updates paused. Reconnecting…';
       renderConnection(chat);
       if (status === 'SUBSCRIBED') {
         if (chat.loaded) void catchUpMessages(chat);
@@ -537,7 +541,7 @@ compose.addEventListener('submit', async (event) => {
 });
 
 messageInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !event.defaultPrevented) {
     event.preventDefault();
     compose.requestSubmit(sendButton);
   }

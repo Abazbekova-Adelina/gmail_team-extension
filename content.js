@@ -13,9 +13,8 @@ function findAnchor() {
   for (const thread of document.querySelectorAll(threadSelector)) {
     const message = thread.querySelector(messageSelector);
     if (!message || !thread.checkVisibility()) continue;
-    const list = message.closest('[role="list"]');
-    if (list && thread.contains(list)) return list;
-    return thread.matches('tr') ? thread.closest('table') : thread;
+    // Keep the iframe out of Gmail's nested lists and table layout.
+    return thread.closest('table.Bs') ?? (thread.matches('tr') ? thread.closest('table') : thread);
   }
   return null;
 }

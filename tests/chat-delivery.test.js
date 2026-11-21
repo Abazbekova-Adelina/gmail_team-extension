@@ -71,10 +71,10 @@ async function controller(key = 'a'.repeat(64), localKey = 'gmail:local', reason
     },
     avatarElement: element, reactionControls: element,
     mentionToken: /@\{([a-f0-9-]+)\}/g,
-    localDay: () => 'today', dayLabel: () => 'Today', timeLabel: () => '12:00',
+    localDay: (date) => date.toISOString().slice(0, 10), dayLabel: () => 'Today', timeLabel: () => '12:00',
   });
   const source = (await readFile(new URL('../chat.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
-  vm.runInContext(`${source}\nglobalThis.controller = { catchUpMessages, receiveMessage, automaticDiscussion, refreshWorkspaces, activate(chat) { activeChat = chat; currentUser = {id: 'me'}; } };`, context);
+  vm.runInContext(`${source}\nglobalThis.controller = { messageRows, catchUpMessages, receiveMessage, automaticDiscussion, refreshWorkspaces, activate(chat) { activeChat = chat; currentUser = {id: 'me'}; } };`, context);
   return { ...context.controller, state, elements };
 }
 
@@ -151,4 +151,37 @@ test('failed identification shows its reason and allows retry without creating a
   assert.equal(app.state.posted.at(-1).data.type, 'threadly-retry-match');
   assert.equal(app.state.posted.at(-1).origin, 'https://mail.google.com');
   assert.equal(app.state.calls.length, 0);
+});
+
+test('consecutive senders group names, but sender changes and day boundaries restart the group', async () => {
+  const app = await controller();
+  const current = { ...chat(), userId: 'me', profile: { name: 'Me', avatar: '' } };
+  const rows = app.messageRows([
+    message(1), message(2),
+    { ...message(3), author_id: 'me' },
+    message(4),
+    { ...message(5), created_at: '2026-11-22T12:00:00Z' },
+  ], current).filter((row) => row.className !== 'date-divider');
+  assert.deepEqual(Array.from(rows, (row) => row.className), [
+    'message', 'message message-continuation', 'message message-own', 'message', 'message',
+  ]);
+});
+
+test('Enter sends unless composing, adding a newline, or accepting a mention', async () => {
+  const app = await controller();
+  const input = app.elements.get('#message-input');
+  const form = app.elements.get('#compose');
+  let submits = 0;
+  form.requestSubmit = () => { submits++; };
+  const key = (options = {}) => {
+    const event = { key: 'Enter', preventDefault() { this.defaultPrevented = true; }, ...options };
+    input.handlers.keydown(event);
+    return event;
+  };
+  assert.equal(key().defaultPrevented, true);
+  assert.equal(submits, 1);
+  key({ shiftKey: true });
+  key({ isComposing: true });
+  key({ defaultPrevented: true });
+  assert.equal(submits, 1);
 });

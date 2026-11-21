@@ -34,10 +34,10 @@
         <form id="compose">
           <div class="compose-row">
             <div class="message-editor">
-              <textarea id="message-input" aria-label="Message" aria-autocomplete="list" aria-controls="mention-suggestions" placeholder="Write a message…" rows="2" maxlength="2000" required></textarea>
+              <textarea id="message-input" aria-label="Message" aria-autocomplete="list" aria-controls="mention-suggestions" placeholder="Write a message…" rows="1" maxlength="2000" required></textarea>
+              <button id="send" class="primary-button" type="submit">Send</button>
               <ul id="mention-suggestions" role="listbox" aria-label="Teammates to mention" hidden></ul>
             </div>
-            <button id="send" class="primary-button" type="submit">Send</button>
           </div>
           <p id="mention-status" role="status"></p>
           <p id="chat-status" role="status"></p>
