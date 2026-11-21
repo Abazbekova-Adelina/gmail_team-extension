@@ -68,7 +68,12 @@
           <div class="compose-row">
             <div class="message-editor">
               <textarea id="message-input" aria-label="Message" aria-autocomplete="list" aria-controls="mention-suggestions" placeholder="Write a message…" rows="1" maxlength="2000" required></textarea>
-              <button id="send" class="primary-button" type="submit">Send</button>
+              <button id="send" class="primary-button" type="submit" aria-label="Send message" title="Send message">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <path d="m22 2-7 20-4-9-9-4Z"/>
+                  <path d="M22 2 11 13"/>
+                </svg>
+              </button>
               <ul id="mention-suggestions" role="listbox" aria-label="Teammates to mention" hidden></ul>
             </div>
           </div>

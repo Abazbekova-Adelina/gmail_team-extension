@@ -81,15 +81,15 @@ function messageElement(message, chat, continuation) {
     offset = match.index + match[0].length;
   }
   body.append(message.body.slice(offset));
-  meta.append(author);
+  meta.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), author);
   bubble.className = 'message-bubble';
   if (ownMessage) bubble.classList.add('message-bubble-own');
   const footer = document.createElement('div');
   footer.className = 'message-footer';
-  footer.append(reactionControls(message.id, chat, (id, emoji) => void setReaction(chat, id, emoji)), time);
-  bubble.append(body, footer);
-  content.append(meta, bubble);
-  item.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), content);
+  footer.append(reactionControls(message.id, chat, (id, emoji) => void setReaction(chat, id, emoji)));
+  bubble.append(body, time);
+  content.append(meta, bubble, footer);
+  item.append(content);
   return item;
 }
 
@@ -157,7 +157,7 @@ async function loadMembers(chat) {
     .eq('workspace_id', chat.workspaceId).order('display_name');
   if (error || chat !== activeChat) return;
   chat.members = new Map(data.map((member) => [member.user_id, member.display_name]));
-  if (data.some((member) => member.user_id !== chat.userId)) messageInput.placeholder = 'Write a message… Type @name to mention someone.';
+  if (data.some((member) => member.user_id !== chat.userId)) messageInput.placeholder = 'Message… @name to mention';
   refreshMentionConfirmation();
   if (chat.messages.size) renderHistory(chat);
 }
