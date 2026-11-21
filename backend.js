@@ -1,7 +1,28 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Extension storage is shared by settings tabs and chat frames embedded in Gmail.
+export const sessionStorageKey = SUPABASE_URL
+  ? `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`
+  : '';
+const authStorage = {
+  async getItem(key) {
+    return (await chrome.storage.local.get(key))[key] ?? null;
+  },
+  async setItem(key, value) {
+    await chrome.storage.local.set({ [key]: value });
+  },
+  async removeItem(key) {
+    await chrome.storage.local.remove(key);
+  },
+};
+
 export const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: { flowType: 'pkce', detectSessionInUrl: false },
+  auth: {
+    flowType: 'pkce',
+    detectSessionInUrl: false,
+    storage: authStorage,
+    storageKey: sessionStorageKey,
+  },
 }) : null;
 
 export async function rpc(name, params = {}) {

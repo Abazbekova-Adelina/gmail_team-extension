@@ -1,26 +1,12 @@
 import { avatarElement, profileDetails } from './avatars.js';
-import { supabase } from './backend.js';
+import { sessionStorageKey, supabase } from './backend.js';
+import { runGoogleSignIn } from './google-sign-in.js';
 
 async function signInWithGoogle() {
   await navigator.locks.request('gmail-team-chat-google-sign-in', { ifAvailable: true }, async (lock) => {
     if (!lock) throw new Error('Finish signing in from the other extension window.');
 
-    const redirectTo = chrome.identity.getRedirectURL('supabase-auth');
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo, skipBrowserRedirect: true },
-    });
-    if (error) throw error;
-
-    const callback = new URL(await chrome.identity.launchWebAuthFlow({ url: data.url, interactive: true }));
-    const expected = new URL(redirectTo);
-    const code = callback.searchParams.get('code');
-    if (callback.origin !== expected.origin || callback.pathname !== expected.pathname || !code) {
-      throw new Error('Google sign-in did not return a session.');
-    }
-
-    const { error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
-    if (sessionError) throw sessionError;
+    await runGoogleSignIn(supabase.auth);
   });
 }
 
@@ -32,8 +18,22 @@ function renderAccount(accountProfile, profile) {
 }
 
 export function watchAccount(onAccountChange) {
-  supabase?.auth.onAuthStateChange((_event, session) => {
-    setTimeout(() => onAccountChange(session?.user), 0);
+  if (!supabase) return;
+  let version = 0;
+  function refreshAccount() {
+    const request = ++version;
+    // Auth callbacks run under the auth client's lock; read after they finish.
+    setTimeout(async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || request !== version) return;
+      // Storage changes do not emit Supabase auth events across partitions.
+      void supabase.realtime.setAuth(data.session?.access_token);
+      onAccountChange(data.session?.user);
+    }, 0);
+  }
+  supabase.auth.onAuthStateChange(refreshAccount);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && Object.hasOwn(changes, sessionStorageKey)) refreshAccount();
   });
 }
 
