@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Threadly: discuss this email privately with your team. Install the Chrome extension.">
-    <meta name="theme-color" content="#232026">
+    <meta name="theme-color" content="#16151a">
     <title>Threadly</title>
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://gmail-team-chat.vercel.app/">
@@ -21,41 +21,38 @@
     <link rel="icon" type="image/png" href="threadly-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap">
     <link rel="stylesheet" href="styles.css">
     <script src="invite.js" defer></script>
   </head>
   <body>
-    <main>
-      <header class="brand">
-        <img src="threadly-icon.png" alt="" width="96" height="96">
-        <div>
-          <h1>Threadly</h1>
-          <p class="tagline">Discuss this email privately with your team.</p>
-        </div>
-      </header>
+    <main class="hero">
+      <img class="icon" src="threadly-icon.png" alt="" width="192" height="192">
+      <div>
+        <h1>Threadly</h1>
+        <p class="tagline">Discuss this email privately with your team.</p>
+      </div>
+    </main>
 
-      <p class="lede">A private team chat attached to every Gmail thread. Create a workspace, invite teammates, and each email gets its own discussion. Gemini turns that discussion into a reply draft.</p>
-
-      <section id="accept-invitation" class="card" hidden aria-labelledby="invite-title">
+    <footer class="install">
+      <section id="accept-invitation" hidden aria-labelledby="invite-title">
         <h2 id="invite-title">Workspace invitation</h2>
         <button class="download" type="button">Open invitation in Chrome</button>
         <p role="status"></p>
       </section>
 
-      <section data-install hidden class="card" aria-labelledby="install-title">
-        <h2 id="install-title">Install in <span>Chrome</span></h2>
+      <section data-install hidden aria-labelledby="install-title">
+        <h2 id="install-title">Install in Chrome</h2>
         <a class="download" href="threadly.zip" download>Download extension</a>
         <ol>
-          <li>Unzip the download into a folder you can keep.</li>
-          <li>Open <code>chrome://extensions</code> and turn on Developer mode.</li>
-          <li>Click <strong>Load unpacked</strong> and select the unzipped folder.</li>
-          <li>Open Threadly from Chrome's extensions menu and sign in with Google. Reload Gmail and open a thread.</li>
-          <li>Create a workspace or accept your invitation in <strong>Workspace settings</strong>.</li>
+          <li>Unzip it into a folder you keep.</li>
+          <li>Open <code>chrome://extensions</code>, turn on Developer mode.</li>
+          <li><strong>Load unpacked</strong>, pick the folder.</li>
+          <li>Sign in from the Threadly icon, then open a Gmail thread.</li>
         </ol>
       </section>
 
-      <p class="pending card" data-pending hidden>Downloads will be available once Google sign-in is ready.</p>
-    </main>
+      <p class="pending" data-pending hidden>Downloads will be available once Google sign-in is ready.</p>
+    </footer>
   </body>
 </html>

@@ -15,6 +15,7 @@ await Promise.all([
   copyFile('site/invite.js', 'site-dist/invite.js'),
   copyFile('site/og-image.jpg', 'site-dist/og-image.jpg'),
   copyFile('site/threadly-icon.png', 'site-dist/threadly-icon.png'),
+  copyFile('site/threads.jpg', 'site-dist/threads.jpg'),
 ]);
 
 if (configured) {
