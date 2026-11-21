@@ -6,7 +6,7 @@
 
 A private team chat attached to every Gmail thread. Your team talks about the email right next to it, and Gemini turns that talk into a reply draft.
 
-Threadly is a Chrome extension built at a hackathon. The manifest still calls it "Gmail Team Chat", so that's the name you'll see in `chrome://extensions` and on the install page.
+Threadly is a Chrome extension built at a hackathon. The install page still lives at `gmail-team-chat.vercel.app`, the project's original name.
 
 ## The problem
 

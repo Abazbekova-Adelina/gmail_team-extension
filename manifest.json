@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Gmail Team Chat",
+  "name": "Threadly",
   "version": "0.3.0",
   "description": "Private team workspaces and discussions under Gmail threads",
   "minimum_chrome_version": "120",
@@ -16,7 +16,7 @@
     "https://mail-attachment.googleusercontent.com/*"
   ],
   "action": {
-    "default_title": "Gmail Team Chat settings",
+    "default_title": "Threadly settings",
     "default_popup": "settings.html?popup=1"
   },
   "options_ui": {

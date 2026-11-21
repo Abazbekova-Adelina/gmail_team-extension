@@ -6,7 +6,7 @@ const googleHosts = ['https://gmail.googleapis.com/*', 'https://mail.google.com/
 const configured = manifest.host_permissions?.some((host) => !googleHosts.includes(host));
 const html = await readFile('site/index.html', 'utf8');
 const visibleSection = configured ? 'data-install' : 'data-pending';
-const archivePath = 'site-dist/gmail-team-chat.zip';
+const archivePath = 'site-dist/threadly.zip';
 
 await mkdir('site-dist', { recursive: true });
 await Promise.all([
@@ -14,6 +14,7 @@ await Promise.all([
   copyFile('site/styles.css', 'site-dist/styles.css'),
   copyFile('site/invite.js', 'site-dist/invite.js'),
   copyFile('site/og-image.jpg', 'site-dist/og-image.jpg'),
+  copyFile('site/threadly-icon.png', 'site-dist/threadly-icon.png'),
 ]);
 
 if (configured) {

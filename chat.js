@@ -354,7 +354,7 @@ function showAccount(user) {
   workspaceRefreshVersion++;
   currentUser = user;
   selectedWorkspace = '';
-  workspaceStatus.textContent = user ? '' : 'Sign in from the Gmail Team Chat toolbar icon.';
+  workspaceStatus.textContent = user ? '' : 'Sign in from the Threadly toolbar icon.';
   if (user) void refreshWorkspaces();
 }
 
