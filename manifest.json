@@ -1,13 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Gmail Team Chat",
-  "version": "0.1.0",
-  "description": "Team discussion panel for Gmail",
+  "version": "0.2.0",
+  "description": "A shared chat under Gmail conversations",
+  "minimum_chrome_version": "120",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArdCPHn4vBIbmN6Mwg36RI9YkpxjRJ6sBUpyO4eH6LHpJkoVD7EM4bf6zxJQJgiSH1cww5uqxAG0t8b1sRbp13oH1e7HjRwWlW13QKKXY/9WRgaPtlPdOat/Ffhhw0FmGTwKy9NaK+0B9leyC2HtlyL+7UnbFO8MmFiGC4MYtXr4tfA5dVAEPhigKh4QiKx5cC04PhRXqxyQVf4li6f0Y0imVdYzM7vr3jhFp+eh6e9DBOLk/axZsP+MQURhNBTk2NcHSq6OXerGeRSZM8eD9LFoHYBbKNuxtP2mJ/aHY0zwc/kDCvfIlY8LVuzd4Hf+eZWUfYkx9kmyDTolL/Pj+IQIDAQAB",
+  "permissions": ["identity"],
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
       "js": ["content.js"],
       "css": ["styles.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["chat.html"],
+      "matches": ["https://mail.google.com/*"]
     }
   ]
 }
