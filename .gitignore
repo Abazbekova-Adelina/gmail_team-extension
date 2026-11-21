@@ -3,3 +3,7 @@
 /node_modules/
 /.env
 /.vercel/
+
+/supabase/functions/.env
+/supabase/functions/.env.*
+!/supabase/functions/.env.example

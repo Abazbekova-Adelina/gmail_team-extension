@@ -1,0 +1,6 @@
+project_id = "gmail-team-chat"
+
+[functions.thread-assistant]
+# Keep the existing gateway check enabled. The handler ALSO validates each
+# caller with Supabase Auth and preserves RLS on all reads.
+verify_jwt = true

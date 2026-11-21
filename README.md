@@ -59,3 +59,23 @@ Run `npm test`, `npm run build`, and `npm run build:site`. Database tests use a 
 The Vercel build runs `npm run build:site` and serves `site-dist`. A configured build includes the downloadable Chrome extension. Add the Supabase variables to the Vercel project before deploying the download.
 
 Google sign-in runs in an extension-owned window. The extension captures the returned Supabase PKCE code and closes the window before the Site URL can display the install page, including when Supabase falls back to its configured Site URL. This does not require a website deployment. Reload the rebuilt extension to apply sign-in changes.
+
+## Gemini discussion assistant
+
+Open **Gemini assistant** above the chat history and select **Summarize & draft reply**. The assistant returns a summary, confirmed decisions, open questions, and an editable email reply. **Copy reply** copies the edited draft; it never sends email or posts to the team chat. Tone choices are Professional, Friendly, and Concise.
+
+Email inclusion is off by default. **Include the visible email** reads only rendered Gmail message text into a preview you can edit before generating. It excludes attachments and collapsed/hidden messages, and is capped at 20,000 characters. Nothing is sent to Gemini until Generate is clicked. Gemini receives private discussion data, so use it only for content your team is comfortable sharing with Google under your project's API terms.
+
+The server fetches the newest stored messages with the signed-in caller's JWT and existing RLS policies, rather than trusting messages supplied by the extension. It includes up to 500 messages within a 90,000-character context budget, in chronological order, and explicitly labels truncated histories. Decisions require supporting message IDs; the model is instructed to distinguish suggestions from agreements and to keep private team debate out of the external reply. Output is plain text, never executable HTML. Summaries/drafts are not persisted in the database and are cleared when changing accounts or discussions. New messages mark a draft as out of date. AI can still get facts or judgments wrong; review drafts before using them.
+
+### Server setup
+
+1. Apply `supabase/migrations/20261123110000_assistant_usage.sql`. This adds a database-backed limit of 20 generation attempts per signed-in user per rolling one-hour window, shared across all workspaces.
+2. Add `GEMINI_API_KEY` in **Supabase Dashboard → Edge Functions → Secrets**. Use a key from Google AI Studio. Never paste it into the frontend `.env`, source code, a browser settings field in this extension, or Git. `supabase/functions/.env.example` lists optional server configuration.
+3. Deploy with `supabase functions deploy thread-assistant --project-ref <project-ref>`. The included function config keeps the existing legacy gateway JWT check enabled. The handler also verifies the bearer token against Supabase Auth and uses the caller's JWT on every database query. There is no service-role client. If your project uses asymmetric JWT signing keys and the gateway rejects them, that requires an explicit administrator decision about gateway authentication before live use.
+4. Optional secrets: `GEMINI_MODEL` (defaults to `gemini-3.5-flash-lite`) and `EXTENSION_ORIGIN` (defaults to this project's stable Chrome extension origin). Supabase injects its URL and publishable/anon keys; `THREADLY_PUBLISHABLE_KEY` is an optional override. Use project/API quotas in Google AI Studio to manage aggregate spend; the app's per-user limit is not a global spending cap.
+5. Rebuild, reload the extension, and refresh Gmail. Verify with a test discussion before using sensitive content. Missing deployment, missing secrets, denied access, quota limits, and provider errors produce recoverable setup/error messages.
+
+For local function development, put server secrets in the ignored `supabase/functions/.env` and run `supabase functions serve thread-assistant --env-file supabase/functions/.env`. Tests use mocked Google responses and local Postgres, never a real key or production conversations.
+
+References: [Gemini content generation](https://ai.google.dev/api/generate-content), [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output), and [Supabase function secrets](https://supabase.com/docs/guides/functions/secrets).

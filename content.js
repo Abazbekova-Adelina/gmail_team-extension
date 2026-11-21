@@ -1,6 +1,7 @@
 import { gmailThreadKey } from './thread-context.js';
 import { EmailIdentityError, gmailMailboxPath, gmailSessionKey, oldestMessageId } from './email-identity.js';
 import { requestEmailIdentity } from './email-identity-bridge.js';
+import { visibleEmailContext } from './email-context.js';
 
 const threadSelector = '[role="main"] :is(.a98.iY, .if, .PeIF1d, table.Bs > tbody > tr)';
 const messageSelector = '.adn, [data-message-id], [data-legacy-message-id]';
@@ -137,6 +138,19 @@ window.addEventListener('message', (event) => {
     matching.controller.abort();
     matching = undefined;
     scheduleMount();
+    return;
+  }
+  if (event.data?.type === 'threadly-email-context-request') {
+    const extensionOrigin = chrome.runtime.getURL('').replace(/\/$/, '');
+    if (event.origin !== extensionOrigin || typeof event.data.requestId !== 'string' || event.data.requestId.length > 80) return;
+    const anchor = findAnchor();
+    const current = threadContext(anchor);
+    const requested = event.data.threadKey;
+    const framed = new URL(frame.src).searchParams.get('thread');
+    if (!anchor || current.gmailKey !== requested || framed !== requested || matching?.state !== 'ready') return;
+    const context = visibleEmailContext(anchor, document.querySelector('[role="main"] h2.hP')?.textContent.trim());
+    frame.contentWindow.postMessage({type:'threadly-email-context-result',requestId:event.data.requestId,
+      threadKey:requested,...context,error:!context.text},extensionOrigin);
     return;
   }
   if (event.data?.type !== 'threadly-height') return;

@@ -25,6 +25,39 @@
       <button id="retry-match" class="text-button" type="button" hidden>Retry email matching</button>
 
       <section id="conversation" class="conversation" aria-label="Shared conversation" hidden>
+        <div class="assistant-toolbar">
+          <button id="assistant-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="assistant-panel">Gemini assistant</button>
+          <span>Summarize the discussion. Prepare your reply.</span>
+        </div>
+        <section id="assistant-panel" class="assistant-panel" aria-label="Gemini assistant" hidden>
+          <form id="assistant-form">
+            <div class="assistant-heading"><h2>From discussion to decision</h2><span class="assistant-badge">Powered by Gemini</span></div>
+            <p class="assistant-explainer">Get a clear summary and an email reply based on what your team agreed.</p>
+            <label class="assistant-email-option"><input id="assistant-include-email" type="checkbox"> Include the visible email</label>
+            <div id="assistant-email-fields" hidden>
+              <label for="assistant-email">Email context · review before sharing</label>
+              <textarea id="assistant-email" rows="3" maxlength="20000" placeholder="Paste or edit the relevant email text…"></textarea>
+              <p id="assistant-email-status" role="status"></p>
+            </div>
+            <div class="assistant-options">
+              <label for="assistant-tone">Reply tone</label>
+              <select id="assistant-tone"><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="concise">Concise</option></select>
+              <button id="assistant-generate" class="primary-button" type="submit">Summarize &amp; draft reply</button>
+            </div>
+            <p class="assistant-disclosure">Generate shares this workspace’s discussion and any included email text with Google Gemini. Nothing is sent as an email or posted to the chat.</p>
+          </form>
+          <p id="assistant-status" role="status" aria-live="polite"></p>
+          <div id="assistant-result" hidden>
+            <p id="assistant-sources" class="assistant-sources"></p>
+            <p id="assistant-stale" class="assistant-stale" hidden>New messages have arrived. Generate again to include them.</p>
+            <h3>Discussion summary</h3><p id="assistant-summary"></p>
+            <h3>Confirmed decisions</h3><ul id="assistant-decisions"></ul>
+            <h3>Open questions</h3><ul id="assistant-questions"></ul>
+            <div class="assistant-draft-heading"><label for="assistant-reply">Reply draft</label><button id="assistant-copy" class="text-button" type="button">Copy reply</button></div>
+            <textarea id="assistant-reply" rows="7" aria-label="Editable email reply draft"></textarea>
+            <p class="assistant-disclosure">AI can make mistakes. Check the facts and remove anything you don’t want to share.</p>
+          </div>
+        </section>
         <div id="message-scroll" class="message-scroll" tabindex="0" aria-label="Message history">
           <button id="load-earlier" class="text-button" type="button" hidden>Load earlier messages</button>
           <button id="retry-history" class="text-button" type="button" hidden>Reload messages</button>
