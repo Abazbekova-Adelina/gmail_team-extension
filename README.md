@@ -16,6 +16,12 @@ Run `npm ci` and `npm run build` with Node.js 22 or newer. Open `chrome://extens
 
 Authentication is stored in `chrome.storage.local`, shared between settings and Gmail's embedded chat. Open panels update on sign-in, token refresh, and sign-out without reloading Gmail. After updating from an older build, reload the extension in `chrome://extensions`, refresh Gmail, and sign in once again; browser-local sessions are not reused.
 
+## Load in Firefox
+
+After `npm run build`, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `dist/manifest.json`. Temporary installations are removed when Firefox closes. The shared manifest uses a service worker in Chrome and a background script in Firefox; Firefox does not support extension background service workers.
+
+The Google OAuth setup and automatic Gmail matching above target Chrome. Firefox authentication and Gmail matching have not been verified.
+
 ## Private teams and thread discussions
 
 For an existing installation, apply `supabase/migrations/20261121193000_add_author_avatars.sql` if needed, then `supabase/migrations/20261121203000_private_workspaces_and_threads.sql`. Rebuild and reload the extension after applying the migrations. The new frontend refuses to open the old global chat when the private-workspace schema is missing. Privacy restrictions take effect on the server only when the migration is applied.
