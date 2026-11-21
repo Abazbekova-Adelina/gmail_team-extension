@@ -13,3 +13,9 @@ export function gmailThreadKey(hash, legacyId, threadId) {
 export function validDiscussionCode(value) {
   return /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 }
+
+export function gmailApiThreadId(legacyId, threadId) {
+  if (/^[a-f0-9]{16,32}$/i.test(legacyId ?? '')) return legacyId.toLowerCase();
+  const match = /^(?:#?thread-[af]:)(\d{10,25})$/.exec(threadId ?? '');
+  return match ? BigInt(match[1]).toString(16) : null;
+}

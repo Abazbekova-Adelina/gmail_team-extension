@@ -1,6 +1,7 @@
 import { rpc, scopeError } from './backend.js';
 import { validDiscussionCode } from './thread-context.js';
 import { discussionStorageKey } from './workspaces.js';
+import { messageMatchKey } from './gmail-metadata.js';
 
 const panel = document.querySelector('#thread-sharing');
 const status = document.querySelector('#discussion-status');
@@ -33,9 +34,11 @@ async function loadDiscussion(thread, version) {
   status.textContent = thread ? 'Loading discussion…' : 'Open a thread in Gmail and return here.';
   if (!thread) return;
   try {
-    const id = await rpc('open_thread_discussion', {
-      p_workspace_id: workspaceId, p_gmail_key: thread.gmailKey,
-    });
+    const args = { p_workspace_id: workspaceId, p_gmail_key: thread.gmailKey };
+    const key = await messageMatchKey(thread.apiThread);
+    if (version !== revision) return;
+    const id = key ? await rpc('match_thread_discussion', { ...args, p_message_key: key })
+      : await rpc('open_thread_discussion', args);
     if (version !== revision) return;
     code.value = id;
     status.textContent = '';

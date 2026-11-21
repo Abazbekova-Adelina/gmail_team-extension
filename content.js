@@ -1,4 +1,4 @@
-import { gmailThreadKey } from './thread-context.js';
+import { gmailApiThreadId, gmailThreadKey } from './thread-context.js';
 
 const threadSelector = '[role="main"] :is(.a98.iY, .if, .PeIF1d, table.Bs > tbody > tr)';
 const messageSelector = '.adn, [data-message-id], [data-legacy-message-id]';
@@ -16,17 +16,21 @@ function findAnchor() {
   return null;
 }
 
-function getThreadKey(anchor) {
+function threadContext(anchor) {
   const source = anchor?.querySelector('[data-legacy-thread-id], [data-thread-id]');
-  return anchor && gmailThreadKey(location.hash,
-    source?.getAttribute('data-legacy-thread-id'), source?.getAttribute('data-thread-id'));
+  const legacyId = source?.getAttribute('data-legacy-thread-id');
+  const threadId = source?.getAttribute('data-thread-id');
+  return {
+    gmailKey: anchor && gmailThreadKey(location.hash, legacyId, threadId),
+    apiThread: gmailApiThreadId(legacyId, threadId),
+  };
 }
 
 function mountChat() {
   scheduled = false;
   const anchor = findAnchor();
-  const threadKey = getThreadKey(anchor);
-  if (!anchor || !threadKey) {
+  const { gmailKey, apiThread } = threadContext(anchor);
+  if (!anchor || !gmailKey) {
     frame?.remove();
     frame = undefined;
     return;
@@ -39,7 +43,9 @@ function mountChat() {
   }
 
   const url = new URL(chrome.runtime.getURL('chat.html'));
-  url.searchParams.set('thread', threadKey);
+  url.searchParams.set('thread', gmailKey);
+  if (apiThread) url.searchParams.set('api-thread', apiThread);
+  url.searchParams.set('mailbox', /^\/mail\/u\/\d+\//.exec(location.pathname)?.[0] ?? '/mail/u/0/');
   // Changing threads creates a fresh frame, clearing the old history and draft.
   if (frame.src !== url.href) frame.src = url.href;
   if (anchor.nextElementSibling !== frame) anchor.after(frame);
@@ -60,7 +66,7 @@ new MutationObserver(scheduleMount).observe(document.body, {
 window.addEventListener('hashchange', scheduleMount);
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type !== 'get-gmail-thread' || sender.id !== chrome.runtime.id) return;
-  const gmailKey = getThreadKey(findAnchor());
-  respond(gmailKey ? { gmailKey, title: document.title } : null);
+  const context = threadContext(findAnchor());
+  respond(context.gmailKey ? { ...context, title: document.title } : null);
 });
 scheduleMount();

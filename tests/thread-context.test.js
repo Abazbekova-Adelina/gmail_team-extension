@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { gmailThreadKey, validDiscussionCode } from '../thread-context.js';
+import { gmailApiThreadId, gmailThreadKey, validDiscussionCode } from '../thread-context.js';
 
 const threadA = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqRXv';
 const threadB = 'FMfcgzQjgzrDFxPDQLFtLphhCPxjqAAA';
@@ -34,7 +34,7 @@ test('Gmail navigation clears old frame history and drafts and hides chat in inb
     after(frame) {this.nextElementSibling = frame;},
   };
   const context = {
-    gmailThreadKey, location, URL,
+    gmailThreadKey, gmailApiThreadId, location, URL,
     requestAnimationFrame(fn) {fn();},
     MutationObserver: class {observe(){}},
     window: {addEventListener(){}},

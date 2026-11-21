@@ -11,7 +11,7 @@
   <body class="settings-page">
     <main class="chat" aria-labelledby="chat-title">
       <header class="chat-header">
-        <h1 id="chat-title">Workspace settings</h1>
+        <h1 id="chat-title">Gmail Team Chat</h1>
         <div class="account-controls">
           <div id="account-profile" class="account-profile" hidden></div>
           <button id="sign-out" class="text-button" type="button" hidden>Sign out</button>
@@ -24,39 +24,56 @@
       </section>
 
       <section id="workspace-view" hidden aria-label="Workspace">
-        <div class="workspace-toolbar">
-          <label for="workspace-select">Workspace</label>
-          <select id="workspace-select"><option value="">Choose a workspace</option></select>
-          <button id="refresh-teams" class="text-button" type="button">Refresh</button>
+        <nav class="settings-nav" aria-label="Settings views">
+          <button id="workspace-view-button" type="button" aria-pressed="true" aria-controls="workspace-controls">Workspace</button>
+          <button id="activity-view-button" type="button" aria-pressed="false" aria-controls="activity-view">Activity <span id="unread-count" hidden></span></button>
+        </nav>
+        <section id="featured-invite" class="workspace-toolbar" hidden aria-label="Invitation"></section>
+        <section id="activity-view" class="activity-view" aria-label="Activity" hidden>
+          <p id="activity-status" role="status"></p>
+          <ul id="activity-list" class="settings-list"></ul>
+        </section>
+        <div id="workspace-controls">
+          <div class="workspace-toolbar">
+            <label for="workspace-select">Workspace</label>
+            <select id="workspace-select"><option value="">Choose a workspace</option></select>
+            <button id="refresh-teams" class="text-button" type="button">Refresh</button>
+          </div>
+          <p id="workspace-status" role="status"></p>
+          <div id="team-settings">
+            <button id="enable-matching" class="text-button" type="button" hidden>Connect Gmail for automatic matching</button>
+            <details id="create-settings" class="settings-disclosure">
+              <summary>Create a workspace</summary>
+              <form id="create-workspace" class="settings-form">
+                <label for="workspace-name" class="visually-hidden">Workspace name</label>
+                <input id="workspace-name" placeholder="e.g. Design team" maxlength="80" required>
+                <button class="primary-button" type="submit">Create</button>
+              </form>
+            </details>
+            <details id="people-settings" class="settings-disclosure">
+              <summary>People and invitations</summary>
+              <section aria-label="Your invitations">
+                <h2>Your invitations</h2>
+                <ul id="my-invitations" class="settings-list"></ul>
+              </section>
+              <section id="owner-settings" hidden>
+                <form id="invite-member" class="settings-form">
+                  <label for="invite-email">Invite by email</label>
+                  <input id="invite-email" type="email" placeholder="teammate@gmail.com" maxlength="320" required>
+                  <button class="primary-button" type="submit">Invite</button>
+                </form>
+                <p class="settings-hint">Tell your teammate to sign in with this email and accept in Workspace settings within 7 days.</p>
+                <h2>Pending invitations</h2>
+                <ul id="pending-invitations" class="settings-list"></ul>
+              </section>
+              <section id="member-settings" hidden>
+                <h2>Members</h2>
+                <ul id="team-members" class="settings-list"></ul>
+              </section>
+            </details>
         </div>
-        <p id="workspace-status" role="status"></p>
-        <div id="team-settings">
-          <form id="create-workspace" class="settings-form">
-            <label for="workspace-name">New workspace</label>
-            <input id="workspace-name" placeholder="e.g. Design team" maxlength="80" required>
-            <button class="primary-button" type="submit">Create</button>
-          </form>
-          <section aria-label="Your invitations">
-            <h2>Your invitations</h2>
-            <ul id="my-invitations" class="settings-list"></ul>
-          </section>
-          <section id="owner-settings" hidden>
-            <form id="invite-member" class="settings-form">
-              <label for="invite-email">Invite by email</label>
-              <input id="invite-email" type="email" placeholder="teammate@gmail.com" maxlength="320" required>
-              <button class="primary-button" type="submit">Invite</button>
-            </form>
-            <p class="settings-hint">Tell your teammate to sign in with this email and accept in Workspace settings within 7 days.</p>
-            <h2>Pending invitations</h2>
-            <ul id="pending-invitations" class="settings-list"></ul>
-          </section>
-          <section id="member-settings" hidden>
-            <h2>Members</h2>
-            <ul id="team-members" class="settings-list"></ul>
-          </section>
-        </div>
-        <details id="thread-sharing" hidden>
-          <summary>Connect a teammate’s copy of this email</summary>
+        <details id="thread-sharing" class="settings-disclosure" hidden>
+          <summary>Connect an email discussion</summary>
           <label for="discussion-tab">Open Gmail thread</label>
           <select id="discussion-tab"></select>
           <p id="discussion-status" role="status"></p>
@@ -74,6 +91,7 @@
             <p>Existing messages stay in the previous discussion.</p>
           </div>
         </details>
+        </div>
       </section>
 
     </main>

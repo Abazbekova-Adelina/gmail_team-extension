@@ -16,6 +16,8 @@
     "page": "settings.html",
     "open_in_tab": true
   },
+  "background": { "service_worker": "invite-bridge.js" },
+  "externally_connectable": { "matches": ["https://gmail-team-chat.vercel.app/*"] },
   "content_scripts": [
     {
       "matches": [
