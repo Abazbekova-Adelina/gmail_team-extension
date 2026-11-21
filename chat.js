@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { avatarElement, profileDetails } from './avatars.js';
+import { validDiscussionCode } from './thread-context.js';
 
 const PAGE_SIZE = 100;
-const MESSAGE_FIELDS = 'id, author_id, author_name, body, created_at';
+// Older databases can still load history before the avatar migration is applied.
+const MESSAGE_FIELDS = '*';
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
 });
@@ -19,12 +22,64 @@ const compose = document.querySelector('#compose');
 const messageInput = document.querySelector('#message-input');
 const sendButton = document.querySelector('#send');
 const chatStatus = document.querySelector('#chat-status');
+const accountProfile = document.querySelector('#account-profile');
 
 const supabase = SUPABASE_URL ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { flowType: 'pkce', detectSessionInUrl: false },
 }) : null;
 
 let activeChat;
+let currentUser;
+let workspaces = [];
+let selectedWorkspace = '';
+let selectionVersion = 0;
+let workspaceRefreshVersion = 0;
+const gmailKey = new URL(location.href).searchParams.get('thread');
+const workspaceView = document.querySelector('#workspace-view');
+const workspaceSelect = document.querySelector('#workspace-select');
+const workspaceStatus = document.querySelector('#workspace-status');
+const teamSettings = document.querySelector('#team-settings');
+const manageTeam = document.querySelector('#manage-team');
+const ownerSettings = document.querySelector('#owner-settings');
+const memberSettings = document.querySelector('#member-settings');
+const discussionCode = document.querySelector('#discussion-code');
+
+function selectedTeam() { return workspaces.find((team) => team.id === selectedWorkspace); }
+function isOwner() { return selectedTeam()?.owner_id === currentUser?.id; }
+function setTeamSettings(open) {
+  teamSettings.hidden = !open;
+  manageTeam.setAttribute('aria-expanded', String(open));
+}
+function stopChat() {
+  selectionVersion++;
+  const previous = activeChat;
+  activeChat = undefined;
+  if (previous?.channel) void supabase.removeChannel(previous.channel);
+  conversation.hidden = true;
+  messageList.replaceChildren();
+  messageInput.value = '';
+  messageInput.readOnly = false;
+  sendButton.disabled = false;
+  discussionCode.value = '';
+  document.querySelector('#link-code').value = '';
+}
+async function rpc(name, params = {}) {
+  const {data, error} = await supabase.rpc(name, params);
+  if (error) throw error;
+  return data;
+}
+function scopeError(error) {
+  if (error?.code === 'P0001' && [
+    'This person is already a member.',
+    'Invitation is unavailable for this account or has expired.',
+    'Discussion is not in this workspace.',
+    'Enter a valid email address.',
+    'Use a workspace name between 1 and 80 characters.',
+  ].includes(error.message)) return error.message;
+  return ['PGRST202', '42P01', '42703'].includes(error?.code)
+    ? 'Private workspaces need the latest database migration. Ask the app owner to apply it.'
+    : 'Could not update the workspace. Check your membership and try again.';
+}
 
 async function signInWithGoogle() {
   await navigator.locks.request('gmail-team-chat-google-sign-in', { ifAvailable: true }, async (lock) => {
@@ -49,21 +104,27 @@ async function signInWithGoogle() {
   });
 }
 
-function messageElement(message, userId) {
+function messageElement(message, chat) {
   const item = document.createElement('li');
   const meta = document.createElement('div');
   const author = document.createElement('strong');
   const time = document.createElement('time');
   const body = document.createElement('p');
+  const content = document.createElement('div');
+  const ownMessage = message.author_id === chat.userId;
+  const name = ownMessage ? chat.profile.name : message.author_name;
 
+  item.className = 'message';
+  content.className = 'message-content';
   meta.className = 'message-meta';
-  author.textContent = message.author_id === userId ? 'You' : message.author_name;
+  author.textContent = ownMessage ? 'You' : name;
   time.dateTime = message.created_at;
   time.textContent = dateFormat.format(new Date(message.created_at));
   body.className = 'message-body';
   body.textContent = message.body;
   meta.append(author, time);
-  item.append(meta, body);
+  content.append(meta, body);
+  item.append(avatarElement(name, ownMessage ? chat.profile.avatar : message.author_avatar_url), content);
   return item;
 }
 
@@ -80,7 +141,7 @@ function renderHistory(chat, { prepend = false } = {}) {
   historyStatus.textContent = chat.historyError || (chat.messages.size ? '' : emptyMessage);
 
   const items = [...chat.messages.values()].sort((a, b) => a.id - b.id);
-  messageList.replaceChildren(...items.map((message) => messageElement(message, chat.userId)));
+  messageList.replaceChildren(...items.map((message) => messageElement(message, chat)));
   if (prepend) messageScroll.scrollTop = previousTop + messageScroll.scrollHeight - previousHeight;
   else if (atBottom) messageScroll.scrollTop = messageScroll.scrollHeight;
 }
@@ -101,8 +162,9 @@ function receiveMessage(chat, id, message) {
   renderHistory(chat);
 }
 
-function messageQuery() {
-  return supabase.from('team_messages').select(MESSAGE_FIELDS);
+function messageQuery(chat) {
+  return supabase.from('team_messages').select(MESSAGE_FIELDS)
+    .eq('workspace_id', chat.workspaceId).eq('discussion_id', chat.discussionId);
 }
 
 function earlierCursor(rows) {
@@ -115,7 +177,7 @@ async function refreshHistory(chat) {
   chat.historyError = '';
   renderHistory(chat);
 
-  const { data, error } = await messageQuery().order('id', { ascending: false }).limit(PAGE_SIZE);
+  const { data, error } = await messageQuery(chat).order('id', { ascending: false }).limit(PAGE_SIZE);
   if (chat !== activeChat || chat.refresh !== changes) return;
   chat.refresh = null;
 
@@ -137,7 +199,7 @@ async function loadEarlier(chat) {
   chat.historyError = '';
   renderHistory(chat);
 
-  const { data, error } = await messageQuery().lt('id', chat.olderThan)
+  const { data, error } = await messageQuery(chat).lt('id', chat.olderThan)
     .order('id', { ascending: false }).limit(PAGE_SIZE);
   if (chat !== activeChat) return;
   chat.loadingEarlier = false;
@@ -156,56 +218,204 @@ async function loadEarlier(chat) {
 }
 
 function showSession(session) {
-  const userId = session?.user.id;
-  if (userId && userId === activeChat?.userId) return;
-
-  const previousChat = activeChat;
-  activeChat = undefined;
-  if (previousChat) void supabase.removeChannel(previousChat.channel);
-
-  conversation.hidden = !userId;
-  signInView.hidden = Boolean(userId);
-  signOutButton.hidden = !userId;
-  signInButton.hidden = Boolean(userId);
+  const user = session?.user;
+  if (user && user.id === currentUser?.id) {
+    currentUser = user;
+    if (activeChat) {
+      activeChat.profile = profileDetails(user);
+      renderHistory(activeChat);
+    }
+    renderAccount(profileDetails(user));
+    return;
+  }
+  stopChat();
+  workspaceRefreshVersion++;
+  currentUser = user;
+  workspaces = [];
+  selectedWorkspace = '';
+  workspaceSelect.replaceChildren();
+  workspaceStatus.textContent = '';
+  document.querySelector('#my-invitations').replaceChildren();
+  document.querySelector('#pending-invitations').replaceChildren();
+  document.querySelector('#team-members').replaceChildren();
+  ownerSettings.hidden = true;
+  memberSettings.hidden = true;
+  workspaceView.hidden = !user;
+  signInView.hidden = Boolean(user);
+  signOutButton.hidden = !user;
+  signInButton.hidden = Boolean(user);
   authStatus.textContent = '';
-  messageList.replaceChildren();
-  messageInput.value = '';
-  messageInput.readOnly = false;
-  sendButton.disabled = false;
-  if (!userId) return;
+  accountProfile.replaceChildren();
+  accountProfile.hidden = !user;
+  if (!user) return;
+  renderAccount(profileDetails(user));
+  void refreshWorkspaces();
+}
 
-  const chat = {
-    userId,
-    messages: new Map(),
-    olderThan: null,
-    refresh: null,
-    loaded: false,
-    loadingEarlier: false,
-    historyError: '',
-    connection: 'Connecting…',
-    sendError: '',
-    draft: null,
-  };
-  activeChat = chat;
-  renderConnection(chat);
-  void refreshHistory(chat);
-
-  chat.channel = supabase.channel(`team-messages-${crypto.randomUUID()}`)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'team_messages' },
-      ({ new: message }) => receiveMessage(chat, message.id, message))
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'team_messages' },
-      ({ old: message }) => receiveMessage(chat, message.id, null))
-    .subscribe((status) => {
-      if (chat !== activeChat) return;
-      chat.connection = status === 'SUBSCRIBED' ? 'Live' : 'Updates paused. Reconnecting…';
-      renderConnection(chat);
-      if (status === 'SUBSCRIBED') void refreshHistory(chat);
+async function openDiscussion(workspaceId, linkedId) {
+  stopChat();
+  const version = selectionVersion;
+  const user = currentUser;
+  if (!user || !workspaceId) return;
+  workspaceStatus.textContent = 'Opening this thread’s discussion…';
+  if (!gmailKey || !gmailKey.startsWith('gmail:') || gmailKey.length > 240) {
+    workspaceStatus.textContent = 'Open an email thread in Gmail to start a discussion.';
+    return;
+  }
+  try {
+    const discussionId = linkedId || await rpc('open_thread_discussion', {
+      p_workspace_id: workspaceId, p_gmail_key: gmailKey,
     });
+    if (version !== selectionVersion || currentUser?.id !== user.id) return;
+    const chat = {
+      userId: user.id, profile: profileDetails(user), workspaceId, discussionId,
+      messages: new Map(), olderThan: null, refresh: null, loaded: false,
+      loadingEarlier: false, historyError: '', connection: 'Connecting…', sendError: '', draft: null,
+    };
+    activeChat = chat;
+    conversation.hidden = false;
+    discussionCode.value = discussionId;
+    workspaceStatus.textContent = '';
+    renderConnection(chat);
+    void refreshHistory(chat);
+    chat.channel = supabase.channel(`discussion-${crypto.randomUUID()}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'team_messages',
+        filter: `discussion_id=eq.${discussionId}`,
+      }, ({new: message}) => {
+        if (message.workspace_id === workspaceId && message.discussion_id === discussionId) {
+          receiveMessage(chat, message.id, message);
+        }
+      })
+      .subscribe((status) => {
+        if (chat !== activeChat) return;
+        chat.connection = status === 'SUBSCRIBED' ? 'Live · Workspace members only' : 'Updates paused. Reconnecting…';
+        renderConnection(chat);
+        if (status === 'SUBSCRIBED') void refreshHistory(chat);
+      });
+  } catch (error) {
+    if (version === selectionVersion) workspaceStatus.textContent = scopeError(error);
+  }
+}
+
+async function selectWorkspace(id) {
+  selectedWorkspace = workspaces.some((team) => team.id === id) ? id : '';
+  workspaceSelect.value = selectedWorkspace;
+  ownerSettings.hidden = !isOwner();
+  memberSettings.hidden = !selectedWorkspace;
+  try { localStorage.setItem(`workspace:${currentUser.id}`, selectedWorkspace); } catch {}
+  const opening = openDiscussion(selectedWorkspace);
+  void refreshTeamDetails();
+  await opening;
+}
+
+async function refreshWorkspaces(preferred) {
+  if (!currentUser) return;
+  const userId = currentUser.id;
+  const version = ++workspaceRefreshVersion;
+  try {
+    const [{data, error}, invitations] = await Promise.all([
+      supabase.from('workspaces').select('id,name,owner_id').order('created_at'),
+      rpc('my_workspace_invitations'),
+    ]);
+    if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
+    if (error) throw error;
+    workspaces = data;
+    workspaceSelect.replaceChildren(new Option('Choose a workspace', ''),
+      ...data.map((team) => new Option(team.name, team.id)));
+    renderInvitations(invitations);
+    let saved;
+    try { saved = localStorage.getItem(`workspace:${userId}`); } catch {}
+    const next = [preferred, selectedWorkspace, saved, data[0]?.id]
+      .find((id) => data.some((team) => team.id === id)) || '';
+    if (next !== selectedWorkspace || !activeChat) await selectWorkspace(next);
+    else {
+      workspaceSelect.value = next;
+      void refreshTeamDetails();
+    }
+    if (!data.length) {
+      workspaceStatus.textContent = 'Create a workspace or accept an invitation to get started.';
+      setTeamSettings(true);
+    }
+    if (invitations.length && !data.length) setTeamSettings(true);
+  } catch (error) {
+    if (version !== workspaceRefreshVersion || currentUser?.id !== userId) return;
+    stopChat();
+    workspaceStatus.textContent = scopeError(error);
+  }
+}
+
+function settingsRow(label, action, onClick) {
+  const row = document.createElement('li');
+  const text = document.createElement('span');
+  text.textContent = label;
+  row.append(text);
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'text-button';
+    button.textContent = action;
+    button.addEventListener('click', () => runTeamAction(button, onClick));
+    row.append(button);
+  }
+  return row;
+}
+function renderInvitations(invitations) {
+  document.querySelector('#my-invitations').replaceChildren(...(invitations.length
+    ? invitations.map((invitation) => settingsRow(invitation.workspace_name, 'Accept', async () => {
+      const id = await rpc('accept_workspace_invitation', {p_invitation_id: invitation.id});
+      await refreshWorkspaces(id);
+    })) : [settingsRow('No pending invitations.')]));
+}
+async function refreshTeamDetails() {
+  const id = selectedWorkspace;
+  const userId = currentUser?.id;
+  document.querySelector('#team-members').replaceChildren();
+  document.querySelector('#pending-invitations').replaceChildren();
+  if (!id) return;
+  const owner = isOwner();
+  const [members, invites] = await Promise.all([
+    supabase.from('workspace_members').select('user_id,display_name').eq('workspace_id', id),
+    owner ? supabase.from('workspace_invitations').select('id,email,expires_at').eq('workspace_id', id)
+      : Promise.resolve({data: []}),
+  ]);
+  if (selectedWorkspace !== id || currentUser?.id !== userId) return;
+  if (members.error || invites.error) {
+    workspaceStatus.textContent = 'Could not load team details. Try Refresh.';
+    return;
+  }
+  document.querySelector('#team-members').replaceChildren(...members.data.map((member) =>
+    settingsRow(member.display_name + (member.user_id === selectedTeam()?.owner_id ? ' · Owner' : ''),
+      owner && member.user_id !== userId ? 'Remove' : '', async () => {
+        await rpc('remove_workspace_member', {p_workspace_id: id, p_user_id: member.user_id});
+        await refreshTeamDetails();
+      })));
+  document.querySelector('#pending-invitations').replaceChildren(...(invites.data.length
+    ? invites.data.map((invite) => settingsRow(`${invite.email}${new Date(invite.expires_at) < new Date() ? ' · Expired' : ''}`, 'Revoke', async () => {
+      await rpc('revoke_workspace_invitation', {p_invitation_id: invite.id});
+      await refreshTeamDetails();
+    })) : [settingsRow('No pending invitations.')]));
+}
+async function runTeamAction(button, action) {
+  button.disabled = true;
+  workspaceStatus.textContent = '';
+  const userId = currentUser?.id;
+  try { await action(); }
+  catch (error) {
+    if (userId === currentUser?.id) workspaceStatus.textContent = scopeError(error);
+  } finally { button.disabled = false; }
+}
+
+function renderAccount(profile) {
+  const name = document.createElement('span');
+  name.className = 'account-name';
+  name.textContent = profile.name;
+  accountProfile.replaceChildren(avatarElement(profile.name, profile.avatar), name);
 }
 
 async function sendMessage(chat, draft) {
   const { data, error } = await supabase.from('team_messages')
-    .upsert({ client_id: draft.id, body: draft.body }, {
+    .upsert({ client_id: draft.id, body: draft.body, workspace_id: chat.workspaceId, discussion_id: chat.discussionId }, {
       onConflict: 'author_id,client_id', ignoreDuplicates: true,
     })
     .select(MESSAGE_FIELDS)
@@ -213,7 +423,7 @@ async function sendMessage(chat, draft) {
   if (error) throw error;
   if (data) return data;
 
-  const { data: existing, error: readError } = await messageQuery()
+  const { data: existing, error: readError } = await messageQuery(chat)
     .eq('author_id', chat.userId).eq('client_id', draft.id).single();
   if (readError) throw readError;
   return existing;
@@ -297,4 +507,70 @@ messageInput.addEventListener('keydown', (event) => {
     event.preventDefault();
     compose.requestSubmit(sendButton);
   }
+});
+
+workspaceSelect.addEventListener('change', () => void selectWorkspace(workspaceSelect.value));
+manageTeam.addEventListener('click', () => {
+  setTeamSettings(teamSettings.hidden);
+  if (!teamSettings.hidden) void refreshWorkspaces();
+});
+document.querySelector('#refresh-teams').addEventListener('click', () => void refreshWorkspaces());
+document.querySelector('#create-workspace').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = document.querySelector('#workspace-name');
+  const name = input.value.trim();
+  if (!name) return;
+  void runTeamAction(event.submitter, async () => {
+    const id = await rpc('create_workspace', {p_name: name});
+    input.value = '';
+    await refreshWorkspaces(id);
+  });
+});
+document.querySelector('#invite-member').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const id = selectedWorkspace;
+  const input = document.querySelector('#invite-email');
+  const email = input.value.trim().toLowerCase();
+  void runTeamAction(event.submitter, async () => {
+    await rpc('invite_workspace_member', {p_workspace_id: id, p_email: email});
+    input.value = '';
+    if (selectedWorkspace === id) {
+      workspaceStatus.textContent = `Invitation ready for ${email}. They can accept it in Manage team.`;
+      await refreshTeamDetails();
+    }
+  });
+});
+document.querySelector('#copy-discussion').addEventListener('click', async () => {
+  const chat = activeChat;
+  if (!chat) return;
+  try {
+    await navigator.clipboard.writeText(chat.discussionId);
+    if (chat === activeChat) workspaceStatus.textContent = 'Discussion code copied. Share it with a workspace member.';
+  } catch {
+    if (chat === activeChat) {
+      discussionCode.select();
+      workspaceStatus.textContent = 'Select and copy the discussion code manually.';
+    }
+  }
+});
+document.querySelector('#link-discussion').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const id = selectedWorkspace;
+  const code = document.querySelector('#link-code').value.trim();
+  if (!validDiscussionCode(code)) {
+    workspaceStatus.textContent = 'Paste a valid discussion code.';
+    return;
+  }
+  void runTeamAction(event.submitter, async () => {
+    const linkedId = await rpc('link_thread_discussion', {
+      p_workspace_id: id, p_gmail_key: gmailKey, p_discussion_id: code,
+    });
+    if (selectedWorkspace === id) await openDiscussion(id, linkedId);
+  });
+});
+// Membership is checked by RLS on every request. Refresh the local team list
+// as well, so a revoked membership also clears already-rendered history.
+setInterval(() => { if (!document.hidden && currentUser) void refreshWorkspaces(); }, 30000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentUser) void refreshWorkspaces();
 });

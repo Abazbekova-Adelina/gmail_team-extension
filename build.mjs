@@ -31,16 +31,16 @@ if (supabaseUrl) {
   manifest.host_permissions = [`${url.protocol}//${url.hostname}/*`];
 }
 
-const extensionFiles = ['content.js', 'styles.css', 'chat.html', 'chat.css'];
+const extensionFiles = ['styles.css', 'chat.html', 'chat.css'];
 await mkdir('dist', { recursive: true });
 await Promise.all([
   build({
-    entryPoints: ['chat.js'],
+    entryPoints: ['chat.js', 'content.js'],
     bundle: true,
     platform: 'browser',
     target: 'chrome120',
-    format: 'esm',
-    outfile: 'dist/chat.js',
+    format: 'iife',
+    outdir: 'dist',
     define: {
       SUPABASE_URL: JSON.stringify(supabaseUrl),
       SUPABASE_PUBLISHABLE_KEY: JSON.stringify(publishableKey ?? ''),

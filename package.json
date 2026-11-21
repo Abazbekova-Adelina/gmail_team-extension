@@ -1,6 +1,6 @@
 {
   "name": "gmail-team-chat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,13 +8,15 @@
   },
   "scripts": {
     "build": "node --env-file-if-exists=.env build.mjs",
-    "build:site": "npm run build && node build-site.mjs"
+    "build:site": "npm run build && node build-site.mjs",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "fflate": "^0.8.3"
+    "fflate": "^0.8.3",
+    "@electric-sql/pglite": "^0.5.17"
   }
 }
