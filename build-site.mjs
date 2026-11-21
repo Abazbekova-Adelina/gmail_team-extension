@@ -2,7 +2,8 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 
 const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
-const configured = manifest.host_permissions?.some((host) => host !== 'https://gmail.googleapis.com/*');
+const googleHosts = ['https://gmail.googleapis.com/*', 'https://mail.google.com/*'];
+const configured = manifest.host_permissions?.some((host) => !googleHosts.includes(host));
 const html = await readFile('site/index.html', 'utf8');
 const visibleSection = configured ? 'data-install' : 'data-pending';
 const archivePath = 'site-dist/gmail-team-chat.zip';

@@ -302,3 +302,16 @@ body:not(.settings-page) #workspace-status:not(:empty) { padding-top: 12px; }
   .workspace-toolbar { padding-inline: 12px; }
   #workspace-select { max-width: none; }
 }
+
+body.compact { height: auto; }
+body.compact .chat { height: auto; }
+body.compact .chat-header { padding-block: 12px; border-bottom: 0; }
+body.compact .brand-mark { flex-basis: 38px; width: 38px; height: 38px; border-radius: 10px; }
+body.compact .brand-mark img { width: 28px; height: 31px; }
+body.compact h1 { font-size: 17px; }
+body.compact .chat-description { margin-top: 2px; }
+.connect-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0 20px 14px; }
+.connect-form label { font-size: 13px; color: var(--secondary); }
+.connect-form select { flex: 1; min-width: 140px; max-width: 280px; }
+.connect-form .primary-button { padding: 7px 16px; }
+#connected-workspace { max-width: 200px; font-size: 13px; }
