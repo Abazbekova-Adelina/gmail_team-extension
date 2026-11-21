@@ -105,3 +105,68 @@ test('preflight does not require a session or call upstream',async()=>{
   assert.equal(response.headers.get('access-control-allow-origin'),origin);
   assert.equal(app.calls.length,0);
 });
+
+test('Firefox origins support preflight and authenticated generation across installations',async()=>{
+  for(const firefoxOrigin of [
+    'moz-extension://69d210c4-0c46-4a19-b31e-445890751a82',
+    'moz-extension://ebc2450c-702b-470c-9af4-34bce1341650',
+  ]) {
+    const app=setup();
+    const preflight=await app.handler(new Request('https://project.supabase.co/functions/v1/thread-assistant',{
+      method:'OPTIONS',headers:{origin:firefoxOrigin},
+    }));
+    assert.equal(preflight.status,204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'),firefoxOrigin);
+    assert.equal(app.calls.length,0);
+    const response=await app.handler(app.request({}, {origin:firefoxOrigin}));
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('access-control-allow-origin'),firefoxOrigin);
+    assert.equal((await response.json()).summary,output.summary);
+  }
+});
+
+test('Firefox origin does not bypass authentication or discussion access',async()=>{
+  const firefoxOrigin='moz-extension://69d210c4-0c46-4a19-b31e-445890751a82';
+  for(const [options,headers,status] of [
+    [{},{authorization:''},401],
+    [{authStatus:401},{},401],
+    [{noAccess:true},{},403],
+  ]) {
+    const app=setup(options);
+    const response=await app.handler(app.request({}, {origin:firefoxOrigin,...headers}));
+    assert.equal(response.status,status);
+    assert.equal(response.headers.get('access-control-allow-origin'),firefoxOrigin);
+    assert.ok(!app.calls.some(c=>c.url.includes('googleapis.com')));
+  }
+});
+
+test('unapproved and malformed origins are rejected before any upstream call',async()=>{
+  for(const rejectedOrigin of [
+    'https://evil.example',
+    'https://moz-extension.example',
+    'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'moz-extension://not-a-uuid',
+    'moz-extension://69d210c4-0c46-4a19-b31e-445890751a82.evil.example',
+    'moz-extension://69d210c4-0c46-4a19-b31e-445890751a82/path',
+    'null',
+  ]) {
+    for(const method of ['OPTIONS','POST']) {
+      const app=setup();
+      const response=await app.handler(new Request('https://project.supabase.co/functions/v1/thread-assistant',{
+        method,headers:{origin:rejectedOrigin},
+      }));
+      assert.equal(response.status,403);
+      assert.equal(response.headers.get('access-control-allow-origin'),null);
+      assert.equal(app.calls.length,0);
+    }
+  }
+});
+
+test('configured Chrome origin is reflected and replaces the default',async()=>{
+  const customOrigin='chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const app=setup({env:{EXTENSION_ORIGIN:customOrigin}});
+  const response=await app.handler(app.request({}, {origin:customOrigin}));
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('access-control-allow-origin'),customOrigin);
+  assert.equal((await app.handler(app.request())).status,403);
+});

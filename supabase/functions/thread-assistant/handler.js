@@ -26,14 +26,18 @@ export function createAssistantHandler({ env, fetchImpl = fetch }) {
   return async (request) => {
     const allowedOrigin = env('EXTENSION_ORIGIN') || 'chrome-extension://ehlcjjpfplfhiaefiljbfehibbialjeh';
     const origin = request.headers.get('origin');
+    // Firefox assigns a different extension UUID per installation.
+    // Origin checks are not authorization: every POST still verifies the caller JWT and RLS.
+    const originAllowed = !origin || origin === allowedOrigin
+      || /^moz-extension:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(origin);
     const headers = {
       'Content-Type': 'application/json', 'Cache-Control': 'no-store', Vary: 'Origin',
-      'Access-Control-Allow-Origin': allowedOrigin,
+      ...(originAllowed ? {'Access-Control-Allow-Origin': origin || allowedOrigin} : {}),
       'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     };
     const reply = (status, body) => new Response(JSON.stringify(body), {status, headers});
-    if (origin && origin !== allowedOrigin) return reply(403, {error:'This origin is not allowed.'});
+    if (!originAllowed) return reply(403, {error:'This origin is not allowed.'});
     if (request.method === 'OPTIONS') return new Response(null, {status:204, headers});
     if (request.method !== 'POST') return reply(405, {error:'Use POST.'});
     try {
