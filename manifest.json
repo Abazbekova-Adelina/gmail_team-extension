@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Gmail Team Chat",
+  "version": "0.1.0",
+  "description": "Team discussion panel for Gmail",
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}
