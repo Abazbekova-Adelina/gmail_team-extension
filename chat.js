@@ -157,7 +157,7 @@ async function loadMembers(chat) {
     .eq('workspace_id', chat.workspaceId).order('display_name');
   if (error || chat !== activeChat) return;
   chat.members = new Map(data.map((member) => [member.user_id, member.display_name]));
-  if (data.some((member) => member.user_id !== chat.userId)) messageInput.placeholder = 'Write a message… Type @name to mention someone.';
+  if (data.some((member) => member.user_id !== chat.userId)) messageInput.placeholder = 'Message… @name to mention';
   refreshMentionConfirmation();
   if (chat.messages.size) renderHistory(chat);
 }
